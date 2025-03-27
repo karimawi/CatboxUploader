@@ -311,7 +311,7 @@ class UploadWindow(QWidget):
                 font-weight: bold;
             }
             QProgressBar::chunk {
-                background-color: #96825F;
+                background-color: #697DA0;
             }
         """)
 

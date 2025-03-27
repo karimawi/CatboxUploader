@@ -176,6 +176,20 @@ def show_history_window():
     table.verticalHeader().setVisible(False)
     table.setShowGrid(False)
 
+    # Enable alternating row colors
+    table.setAlternatingRowColors(True)
+    table.setStyleSheet("""
+        QTableWidget {
+            background-color: #2D2D2D;
+            alternate-background-color: #262626;
+            color: white;
+        }
+        QHeaderView::section {
+            background-color: #3C3C3C;
+            color: white;
+        }
+    """)
+
     def load_table_data():
         uploads = load_uploads()
         table.setRowCount(len(uploads))
@@ -197,7 +211,7 @@ def show_history_window():
             icon = create_thumbnail(file_path, deleted=not file_exists)
             thumb_label = QLabel()
             thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            thumb_pixmap = icon.pixmap(48, 48)  # Match this to row height if needed (80px)
+            thumb_pixmap = icon.pixmap(48, 48)
             thumb_label.setPixmap(thumb_pixmap)
             table.setCellWidget(row_index, 1, thumb_label)
 
