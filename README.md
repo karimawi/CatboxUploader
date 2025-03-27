@@ -119,8 +119,9 @@ Use `--edit-userhash` anytime to update it via a GUI prompt.
 
 ---
 
-## 🎥 Demo GIF
+## 🎥 Demo
 
+[demo.webm](https://github.com/user-attachments/assets/18f419b0-432b-44bc-8cf4-c005f46255ce)
 
 ---
 
