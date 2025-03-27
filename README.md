@@ -102,7 +102,7 @@ Each upload is logged with:
 - 🖼️ Thumbnail (for media types)
 - 📅 Timestamp
 - 📄 Local file path (with deleted file marking if missing)
-- 
+
 ![history1](https://github.com/user-attachments/assets/4e5298a3-176d-45e7-8c7d-b91a0c3780e0)
 
 ---
