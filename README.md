@@ -10,6 +10,21 @@
 
 <h1 align="center"><img src="https://github.com/user-attachments/assets/a391bc7a-a4b7-4233-b651-0bd51c6930fc" alt="Catbox" width=40 style="vertical-align:top"/> Catbox Uploader for Windows</h1>
 
+<p align="center">
+  <a href="#" target="_blank">
+    <img src="https://img.shields.io/badge/Version-1.0.1-yellow?labelColor=1E1E1E&color=697DA0&style=for-the-badge" alt="Version"/>
+    </a>
+  <a href="https://discord.com/users/609230785769111554" target="_blank">
+    <img src="https://img.shields.io/badge/Discord-Profile-Yellow?labelColor=1E1E1E&color=697DA0&style=for-the-badge&logo=discord&logoColor=697DA0" alt="Chat"/>
+    </a>
+   <a href="https://github.com/karimawi/CatboxUploader/releases/" target="_blank">
+    <img src="https://img.shields.io/github/downloads/karimawi/CatboxUploader/total?labelColor=1E1E1E&color=697DA0&style=for-the-badge&logo=data:image/svg+xml;base64,PCEtLSBVcGxvYWRlZCB0bzogU1ZHIFJlcG8sIHd3dy5zdmdyZXBvLmNvbSwgVHJhbnNmb3JtZWQgYnk6IFNWRyBSZXBvIE1peGVyIFRvb2xzIC0tPgo8c3ZnIHdpZHRoPSIyMHB4IiBoZWlnaHQ9IjIwcHgiIHZpZXdCb3g9IjAgMCAxNiAxNiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiBmaWxsPSJub25lIj4KCjxnIGZpbGw9IiM2OTdEQTAiPgoKPHBhdGggZD0iTTguNzUgMS43NWEuNzUuNzUgMCAwMC0xLjUgMHY2LjU5TDUuMyA2LjI0YS43NS43NSAwIDEwLTEuMSAxLjAyTDcuNDUgMTAuNzZhLjc4Ljc4IDAgMDAuMDM4LjAzOC43NDguNzQ4IDAgMDAxLjA2My0uMDM3bDMuMjUtMy41YS43NS43NSAwIDEwLTEuMS0xLjAybC0xLjk1IDIuMVYxLjc1eiIvPgoKPHBhdGggZD0iTTEuNzUgOWEuNzUuNzUgMCAwMS43NS43NXYzYzAgLjQxNC4zMzYuNzUuNzUuNzVoOS41YS43NS43NSAwIDAwLjc1LS43NXYtM2EuNzUuNzUgMCAwMTEuNSAwdjNBMi4yNSAyLjI1IDAgMDExMi43NSAxNWgtOS41QTIuMjUgMi4yNSAwIDAxMSAxMi43NXYtM0EuNzUuNzUgMCAwMTEuNzUgOXoiLz4KCjwvZz4KCjwvc3ZnPg==" alt="Download"/>
+  </a>
+  <a href="https://github.com/karimawi/CatboxUploader/blob/master/LICENSE" target="_blank">
+    <img src="https://img.shields.io/github/license/karimawi/CatboxUploader?labelColor=1E1E1E&color=697DA0&style=for-the-badge&logo=data:image/svg+xml;base64,PCEtLSBVcGxvYWRlZCB0bzogU1ZHIFJlcG8sIHd3dy5zdmdyZXBvLmNvbSwgVHJhbnNmb3JtZWQgYnk6IFNWRyBSZXBvIE1peGVyIFRvb2xzIC0tPg0KPHN2ZyANCiAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIg0KICB3aWR0aD0iMjQiDQogIGhlaWdodD0iMjQiDQogIHZpZXdCb3g9IjAgMCAyNCAyNCINCiAgZmlsbD0ibm9uZSINCiAgc3Ryb2tlPSIjNjk3REEwIg0KICBzdHJva2Utd2lkdGg9IjIiDQogIHN0cm9rZS1saW5lY2FwPSJyb3VuZCINCiAgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCINCj4NCiAgPHBhdGggZD0iTTE2IDE2bDMtOCAzLjAwMSA4QTUuMDAyIDUuMDAyIDAgMDExNiAxNnoiIC8+DQogIDxwYXRoIGQ9Ik0yIDE2bDMtOCAzLjAwMSA4QTUuMDAyIDUuMDAyIDAgMDEyIDE2eiIgLz4NCiAgPHBhdGggZD0iTTcgMjFoMTAiIC8+DQogIDxwYXRoIGQ9Ik0xMiAzdjE4IiAvPg0KICA8cGF0aCBkPSJNMyA3aDJjMiAwIDUtMSA3LTIgMiAxIDUgMiA3IDJoMiIgLz4NCjwvc3ZnPg==" alt="License"/>
+  <br/>
+  <p align="center">
+
 A Windows-based context menu tool to upload files to [Catbox.moe](https://catbox.moe) and [Litterbox.catbox.moe](https://litterbox.catbox.moe) with a slick GUI progress bar, thumbnail previews, upload history, and options to upload anonymously or with a saved userhash.
 
 ---
