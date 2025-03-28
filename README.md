@@ -1,14 +1,14 @@
 <p align="center">
   <picture>
-    <source srcset="https://github.com/user-attachments/assets/c2f437b0-0f8a-4e48-b109-ac149804d335" media="(prefers-color-scheme: dark)">
-    <img src="https://github.com/user-attachments/assets/786784c0-c040-4c3e-ac39-e3f3e152d853" alt="(WE) Telecom Egypt Quota Check" height="auto"">
+    <source srcset="https://files.catbox.moe/d2r5z6.png" media="(prefers-color-scheme: dark)">
+    <img src="https://files.catbox.moe/1silp2.png" alt="(WE) Telecom Egypt Quota Check" height="auto"">
   </picture>
 
 </p>
 
 ---
 
-<h1 align="center"><img src="https://github.com/user-attachments/assets/a391bc7a-a4b7-4233-b651-0bd51c6930fc" alt="Catbox" width=40 style="vertical-align:top"/> Catbox Uploader for Windows</h1>
+<h1 align="center"><img src="https://files.catbox.moe/d39uzw.png" alt="Catbox" width=40 style="vertical-align:top"/> Catbox Uploader for Windows</h1>
 
 <p align="center">
   <a href="#" target="_blank">
@@ -70,7 +70,7 @@ pyinstaller --noconfirm --onedir --windowed --icon ".\icon.ico" --add-data ".\bi
 ## 🖱️ Usage
 
 Right-click any file and choose one of the options:
-![cm](https://github.com/user-attachments/assets/d7bc6251-0333-4307-bc42-66d43f386ab5)
+![Context Menu Options](https://files.catbox.moe/7tw3ly.png)
 
 
 ### 📤 Catbox Menu
@@ -105,7 +105,7 @@ catbox.exe [--anonymous] [--litterbox {1h,12h,24h,72h}] <file>
 
 ---
 
-![upload2_userhash](https://github.com/user-attachments/assets/30660e13-7981-4579-8cc9-9405f483ed76)
+![Upload & Userhash Demo](https://files.catbox.moe/9vswu6.png)
 
 
 ## 📁 Upload History
@@ -118,7 +118,7 @@ Each upload is logged with:
 - 📅 Timestamp
 - 📄 Local file path (with deleted file marking if missing)
 
-![history1](https://github.com/user-attachments/assets/4e5298a3-176d-45e7-8c7d-b91a0c3780e0)
+![Upload History](https://files.catbox.moe/xyhk8m.png)
 
 ---
 
@@ -136,7 +136,7 @@ Use `--edit-userhash` anytime to update it via a GUI prompt.
 
 ## 🎥 Demo
 
-[demo.webm](https://github.com/user-attachments/assets/18f419b0-432b-44bc-8cf4-c005f46255ce)
+[Demo Video](https://files.catbox.moe/1u574c.webm)
 
 ---
 
