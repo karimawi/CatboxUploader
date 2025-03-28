@@ -156,15 +156,6 @@ Use `--edit-userhash` anytime to update it via a GUI prompt.
 
 ---
 
-## 🧪 Future Plans
-
-- Drag-and-drop upload support
-- Upload queue for multiple files
-- Auto-thumbnail generator for more file types
-- Dark mode toggle
-
----
-
 ## 📜 License
 
 GNU General Public License v3.0
