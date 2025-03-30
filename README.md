@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source srcset="https://files.catbox.moe/d2r5z6.png" media="(prefers-color-scheme: dark)">
-    <img src="https://files.catbox.moe/1silp2.png" alt="(WE) Telecom Egypt Quota Check" height="auto"">
+    <img src="https://files.catbox.moe/1silp2.png" alt="Catbox Uploader" height="auto"">
   </picture>
 
 </p>
