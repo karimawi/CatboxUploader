@@ -54,7 +54,7 @@ A Windows-based context menu tool to upload files to [Catbox.moe](https://catbox
    git clone https://github.com/karimawi/CatboxUploader
    ```
    
-2. Install the requred dependencies
+2. Install the required dependencies
    ```bash
    pip install -r requirements.txt
    ```
@@ -112,11 +112,12 @@ catbox.exe [--anonymous] [--litterbox {1h,12h,24h,72h}] <file>
 
 Each upload is logged with:
 
-- ✅ Status (success or failure)
 - 🔗 Link to uploaded file
 - 🖼️ Thumbnail (for media types)
 - 📅 Timestamp
 - 📄 Local file path (with deleted file marking if missing)
+- 🗑️ Supports deleting the file from Catbox for user uploaded files
+- ❌ Supports bulk select and remove from history with select mode
 
 ![Upload History](https://files.catbox.moe/xyhk8m.png)
 
