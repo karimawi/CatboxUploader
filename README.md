@@ -149,6 +149,10 @@ Use `--edit-userhash` anytime to update it via a GUI prompt.
 - You can bulk upload if you select more than one file, the program will launch multiple instances for each file
 - You might struggle with SSL or Timeout error when uploading large files, this is due to the Catbox's API limitiations, it cannot keep an open connection for such long periods of time if you don't have fast enough internet to upload your file
 ---
+## 📃 TODO
+- [] Make the file paths in the history window clickable to open the file in the default app
+- [] Right-click path context menu, add an option to view file in folder
+---
 
 ## 🐾 Credits
 
