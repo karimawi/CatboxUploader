@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="#" target="_blank">
-    <img src="https://img.shields.io/badge/Version-1.0.1-yellow?labelColor=1E1E1E&color=697DA0&style=for-the-badge" alt="Version"/>
+    <img src="https://img.shields.io/badge/Version-1.0.2-yellow?labelColor=1E1E1E&color=697DA0&style=for-the-badge" alt="Version"/>
     </a>
   <a href="https://discord.com/users/609230785769111554" target="_blank">
     <img src="https://img.shields.io/badge/Discord-Profile-Yellow?labelColor=1E1E1E&color=697DA0&style=for-the-badge&logo=discord&logoColor=697DA0" alt="Chat"/>
