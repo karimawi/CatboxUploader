@@ -219,8 +219,7 @@ class UploadWorker(QThread):
                 monitor = MultipartEncoderMonitor(MultipartEncoder(fields=fields), self.update_monitor)
                 headers = {"User-Agent": USER_AGENT, "Content-Type": monitor.content_type}
                 try:
-                    # Increase timeout to 60 seconds for connection and read
-                    response = self.session.post(api_url, data=monitor, headers=headers, stream=True, timeout=(60, 60))
+                    response = self.session.post(api_url, data=monitor, headers=headers, stream=True)
                     if response.status_code == 200 and "https://" in response.text:
                         self.upload_finished.emit(response.text.strip())
                         return
