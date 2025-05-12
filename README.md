@@ -152,6 +152,7 @@ Use `--edit-userhash` anytime to update it via a GUI prompt.
 ## 📃 TODO
 - [ ] Make the file paths in the history window clickable to open the file in the default app
 - [ ] Right-click path context menu, add an option to view file in folder
+- [ ] Include minutes and hours in ETA calculations
 ---
 
 ## 🐾 Credits
