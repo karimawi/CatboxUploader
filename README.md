@@ -153,6 +153,8 @@ Use `--edit-userhash` anytime to update it via a GUI prompt.
 - [ ] Make the file paths in the history window clickable to open the file in the default app
 - [ ] Right-click path context menu, add an option to view file in folder
 - [ ] Include minutes and hours in ETA calculations
+- [ ] Fix copying invalid blob
+- [ ] Implement a button to copy an embeddable URL to enable video preview with [Benny's Embed Generator](https://benny.fun/embed) for apps like Discord
 ---
 
 ## 🐾 Credits
