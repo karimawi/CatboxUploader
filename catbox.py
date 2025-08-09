@@ -5,6 +5,9 @@ import sys
 import time
 import traceback
 import winreg
+import urllib.parse
+import sqlite3
+import shutil
 from thumb import generate_thumbnail
 from history_viewer import log_upload
 import pythoncom
@@ -13,10 +16,10 @@ import PIL.Image as Image
 from moviepy.video.io.VideoFileClip import VideoFileClip
 from PyQt6.QtCore import (Qt, QThread, QTimer, pyqtSignal,
                           pyqtSlot)
-from PyQt6.QtGui import QIcon, QImage, QPixmap
+from PyQt6.QtGui import QIcon, QImage, QPixmap, QAction, QCursor
 from PyQt6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QInputDialog,
                              QLabel, QMessageBox, QProgressBar, QPushButton,
-                             QScrollArea, QTextEdit, QVBoxLayout, QWidget)
+                             QScrollArea, QTextEdit, QVBoxLayout, QWidget, QMenu)
 from requests_toolbelt.multipart.encoder import (MultipartEncoder,
                                                  MultipartEncoderMonitor)
 
@@ -28,7 +31,8 @@ if getattr(sys, 'frozen', False):
 else:
     application_path = os.path.dirname(os.path.abspath(__file__))
 
-ico_path = os.path.join(application_path, "icon.ico")
+ico_path = os.path.join(application_path, "icons", "icon.ico")
+
 REG_PATH = r"Software\CatboxUploader"
 
 # API Endpoints
@@ -82,66 +86,84 @@ args = parser.parse_args()
 
 cwd = os.getcwd()
 icon_path = f'"{cwd}\\icon.ico"'
+icons_dir = os.path.join(cwd, "icons")
 
 CONTEXT_MENU_KEYS = [
-    (r"Software\Classes\*\shell\Catbox", "Catbox", True),
+    (r"Software\Classes\*\shell\Catbox", "Catbox", True, "icon.ico"),
     
-    # Ordered sub-items
-    (r"Software\Classes\*\shell\Catbox\shell\001_upload_user", "📤 Upload as User", False),
-    (r"Software\Classes\*\shell\Catbox\shell\001_upload_user\command", f'"{cwd}\\catbox.exe" "%1"', False),
+    # Ordered sub-items with individual icons
+    (r"Software\Classes\*\shell\Catbox\shell\001_upload_user", "Upload as User", False, "upload_user.ico"),
+    (r"Software\Classes\*\shell\Catbox\shell\001_upload_user\command", f'"{cwd}\\catbox.exe" "%1"', False, None),
 
-    (r"Software\Classes\*\shell\Catbox\shell\002_upload_anon", "👤 Upload anonymously", False),
-    (r"Software\Classes\*\shell\Catbox\shell\002_upload_anon\command", f'"{cwd}\\catbox.exe" --anonymous "%1"', False),
+    (r"Software\Classes\*\shell\Catbox\shell\002_upload_anon", "Upload anonymously", False, "upload_anon.ico"),
+    (r"Software\Classes\*\shell\Catbox\shell\002_upload_anon\command", f'"{cwd}\\catbox.exe" --anonymous "%1"', False, None),
 
-    (r"Software\Classes\*\shell\Catbox\shell\003_edit_userhash", "⚙️ Edit userhash", False),
-    (r"Software\Classes\*\shell\Catbox\shell\003_edit_userhash\command", f'"{cwd}\\catbox.exe" --edit-userhash', False),
+    (r"Software\Classes\*\shell\Catbox\shell\003_edit_userhash", "Edit userhash", False, "edit_userhash.ico"),
+    (r"Software\Classes\*\shell\Catbox\shell\003_edit_userhash\command", f'"{cwd}\\catbox.exe" --edit-userhash', False, None),
     
-    (r"Software\Classes\*\shell\Catbox\shell\004_history", "🕓 Upload History", False),
-    (r"Software\Classes\*\shell\Catbox\shell\004_history\command", f'"{cwd}\\catbox.exe" --history', False),
+    (r"Software\Classes\*\shell\Catbox\shell\004_history", "Upload History", False, "history.ico"),
+    (r"Software\Classes\*\shell\Catbox\shell\004_history\command", f'"{cwd}\\catbox.exe" --history', False, None),
 
-    (r"Software\Classes\*\shell\Litterbox", "Litterbox", True),
+    (r"Software\Classes\*\shell\Litterbox", "Litterbox", True, "icon.ico"),
     
-    # Ordered expiration times
-    (r"Software\Classes\*\shell\Litterbox\shell\001_litterbox_1h", "1h", False),
-    (r"Software\Classes\*\shell\Litterbox\shell\001_litterbox_1h\command", f'"{cwd}\\catbox.exe" --litterbox 1h "%1"', False),
+    # Litterbox items without custom icons (will use default system icons)
+    (r"Software\Classes\*\shell\Litterbox\shell\001_litterbox_1h", "1h", False, None),
+    (r"Software\Classes\*\shell\Litterbox\shell\001_litterbox_1h\command", f'"{cwd}\\catbox.exe" --litterbox 1h "%1"', False, None),
 
-    (r"Software\Classes\*\shell\Litterbox\shell\002_litterbox_12h", "12h", False),
-    (r"Software\Classes\*\shell\Litterbox\shell\002_litterbox_12h\command", f'"{cwd}\\catbox.exe" --litterbox 12h "%1"', False),
+    (r"Software\Classes\*\shell\Litterbox\shell\002_litterbox_12h", "12h", False, None),
+    (r"Software\Classes\*\shell\Litterbox\shell\002_litterbox_12h\command", f'"{cwd}\\catbox.exe" --litterbox 12h "%1"', False, None),
 
-    (r"Software\Classes\*\shell\Litterbox\shell\003_litterbox_24h", "24h", False),
-    (r"Software\Classes\*\shell\Litterbox\shell\003_litterbox_24h\command", f'"{cwd}\\catbox.exe" --litterbox 24h "%1"', False),
+    (r"Software\Classes\*\shell\Litterbox\shell\003_litterbox_24h", "24h", False, None),
+    (r"Software\Classes\*\shell\Litterbox\shell\003_litterbox_24h\command", f'"{cwd}\\catbox.exe" --litterbox 24h "%1"', False, None),
 
-    (r"Software\Classes\*\shell\Litterbox\shell\004_litterbox_72h", "72h", False),
-    (r"Software\Classes\*\shell\Litterbox\shell\004_litterbox_72h\command", f'"{cwd}\\catbox.exe" --litterbox 72h "%1"', False),
+    (r"Software\Classes\*\shell\Litterbox\shell\004_litterbox_72h", "72h", False, None),
+    (r"Software\Classes\*\shell\Litterbox\shell\004_litterbox_72h\command", f'"{cwd}\\catbox.exe" --litterbox 72h "%1"', False, None),
 ]
 
 def check_registry_keys():
     """Check if all context menu registry keys exist and have the correct values."""
     missing_or_incorrect_keys = []
 
-    for key_path, value, is_parent in CONTEXT_MENU_KEYS:
+    for entry in CONTEXT_MENU_KEYS:
+        key_path, value, is_parent = entry[:3]
+        icon_file = entry[3] if len(entry) > 3 else None
+        
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ) as key:
                 if "command" in key_path:
                     # For command keys, check if the value matches the current executable path
                     current_value, _ = winreg.QueryValueEx(key, "")
                     if current_value != value:
-                        missing_or_incorrect_keys.append((key_path, value))
+                        missing_or_incorrect_keys.append((key_path, value, is_parent, icon_file))
                 else:
                     # For non-command keys, check if the MUIVerb value matches
                     current_value, _ = winreg.QueryValueEx(key, "MUIVerb")
                     if current_value != value:
-                        missing_or_incorrect_keys.append((key_path, value))
+                        missing_or_incorrect_keys.append((key_path, value, is_parent, icon_file))
+                    
+                    # Check icon if specified
+                    if icon_file:
+                        try:
+                            icon_path_full = f'"{os.path.join(icons_dir, icon_file)}"'
+                            current_icon, _ = winreg.QueryValueEx(key, "Icon")
+                            if current_icon != icon_path_full:
+                                missing_or_incorrect_keys.append((key_path, value, is_parent, icon_file))
+                        except FileNotFoundError:
+                            missing_or_incorrect_keys.append((key_path, value, is_parent, icon_file))
+                            
         except FileNotFoundError:
             # If the key doesn't exist, add it to the list of missing keys
-            missing_or_incorrect_keys.append((key_path, value))
+            missing_or_incorrect_keys.append((key_path, value, is_parent, icon_file))
 
     return not missing_or_incorrect_keys  # True if no keys are missing or incorrect
 
 def add_registry_keys():
     """Add or update context menu registry keys."""
     try:
-        for key_path, value, is_parent in CONTEXT_MENU_KEYS:
+        for entry in CONTEXT_MENU_KEYS:
+            key_path, value, is_parent = entry[:3]
+            icon_file = entry[3] if len(entry) > 3 else None
+            
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
                 if "command" in key_path:
                     # For command keys, set the value to the current executable path
@@ -149,8 +171,18 @@ def add_registry_keys():
                 else:
                     # For non-command keys, set the MUIVerb value
                     winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, value)
+                    
+                    # Set icon if specified
+                    if icon_file:
+                        icon_path_full = f'"{os.path.join(icons_dir, icon_file)}"'
+                        # Verify icon file exists before setting
+                        if os.path.exists(os.path.join(icons_dir, icon_file)):
+                            winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, icon_path_full)
+                        else:
+                            # Fallback to main icon if specific icon doesn't exist
+                            winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, icon_path)
+                    
                     if is_parent:
-                        winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, icon_path)  # Set icon
                         winreg.SetValueEx(key, "SubCommands", 0, winreg.REG_SZ, "")
         return True
     except Exception as e:
@@ -164,10 +196,13 @@ def main():
     app = QApplication(sys.argv) if not QApplication.instance() else QApplication.instance()
 
     if len(sys.argv) == 1:
+        # Ensure icons directory exists
+        ensure_icons_directory()
+        
         if not check_registry_keys():
             if add_registry_keys():
                 app.setWindowIcon(QIcon(ico_path))
-                QMessageBox.information(None, "Context Menu Updated", "Context menu buttons have been added & updated.")
+                QMessageBox.information(None, "Context Menu Updated", "Context menu buttons have been added & updated with custom icons.")
         sys.exit(0)
 
 # Handle --edit-userhash separately
@@ -182,66 +217,219 @@ USER_HASH = read_registry_value("userhash")
 if not USER_HASH and args.file and not args.anonymous:
     USER_HASH = prompt_for_userhash()
 
+def get_database_path():
+    """Get the database path, preferring %APPDATA%/Catbox Uploader/ location."""
+    # New location in %APPDATA%
+    appdata_path = os.path.expandvars(r"%APPDATA%\Catbox Uploader")
+    new_db_path = os.path.join(appdata_path, "catbox.db")
+    
+    # Old location in working directory
+    old_db_path = os.path.join(application_path, "catbox.db")
+    
+    # Create %APPDATA%/Catbox Uploader directory if it doesn't exist
+    os.makedirs(appdata_path, exist_ok=True)
+    
+    # Check if old database exists and new one doesn't
+    if os.path.exists(old_db_path) and not os.path.exists(new_db_path):
+        try:
+            shutil.move(old_db_path, new_db_path)
+            print(f"✅ Migrated database from {old_db_path} to {new_db_path}")
+        except Exception as e:
+            print(f"⚠️ Failed to migrate database: {e}")
+            # Fall back to old location if migration fails
+            return old_db_path
+    
+    return new_db_path
+
+def ensure_database_schema():
+    """Ensure the database exists and has the correct schema."""
+    db_path = get_database_path()
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Check if uploads table exists
+        cursor.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='uploads'
+        """)
+        
+        table_exists = cursor.fetchone() is not None
+        
+        if not table_exists:
+            # Create the uploads table
+            cursor.execute("""
+                CREATE TABLE uploads (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_path TEXT,
+                    url TEXT,
+                    mode TEXT,
+                    timestamp INTEGER,
+                    expiry_duration TEXT,
+                    is_deleted INTEGER DEFAULT 0
+                )
+            """)
+            print("✅ Created uploads table")
+        else:
+            # Check if is_deleted column exists (for backward compatibility)
+            cursor.execute("PRAGMA table_info(uploads)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'is_deleted' not in columns:
+                cursor.execute("ALTER TABLE uploads ADD COLUMN is_deleted INTEGER DEFAULT 0")
+                print("✅ Added is_deleted column to uploads table")
+        
+        conn.commit()
+        conn.close()
+        print(f"✅ Database schema validated: {db_path}")
+        return db_path
+        
+    except Exception as e:
+        print(f"❌ Database schema validation failed: {e}")
+        return None
+
+def log_upload(file_path, url, mode, expiry_duration=None):
+    """Log upload information to database."""
+    db_path = ensure_database_schema()
+    if not db_path:
+        return
+        
+    try:
+        file_path = os.path.abspath(file_path)
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT INTO uploads (file_path, url, mode, timestamp, expiry_duration, is_deleted)
+            VALUES (?, ?, ?, ?, ?, 0)
+        """, (
+            file_path,
+            url,
+            mode,
+            int(time.time()),
+            expiry_duration
+        ))
+        conn.commit()
+        conn.close()
+        print(f"✅ Successfully logged upload: {file_path}")
+    except Exception as e:
+        print(f"⚠️ Failed to log upload: {e}")
+
 class UploadWorker(QThread):
-    update_progress = pyqtSignal(int)  # Signal for progress percentage
-    update_bytes_uploaded = pyqtSignal(int)  # Signal for bytes uploaded
-    upload_finished = pyqtSignal(str)  # Signal for upload completion
+    update_progress = pyqtSignal(int)
+    update_bytes_uploaded = pyqtSignal(int)
+    upload_finished = pyqtSignal(str)
 
     def __init__(self, file_path, is_anonymous=False, litterbox_time=None):
         super().__init__()
         self.file_path = file_path
         self.is_anonymous = is_anonymous
         self.litterbox_time = litterbox_time
-        self.session = requests.Session()
+        self.total_size = 0
         self.bytes_uploaded = 0
-        self.file_size = os.path.getsize(file_path)
-
-    def run(self):
-        pythoncom.CoInitialize()
-        fields = {"reqtype": "fileupload"}
-        api_url = API_CATBOX if not self.litterbox_time else API_LITTERBOX
         
-        if self.file_size == 0:
-            self.upload_finished.emit("⚠️ Error: File is empty.")
-            return
-        if self.litterbox_time:
-            fields["time"] = self.litterbox_time
-        elif not self.is_anonymous:
-            fields["userhash"] = USER_HASH
+    def run(self):
+        try:
+            # Get file size for progress tracking
+            self.total_size = os.path.getsize(self.file_path)
+            
+            # Choose upload method based on parameters
+            if self.litterbox_time:
+                result = self.upload_to_litterbox()
+            else:
+                result = self.upload_to_catbox()
+            
+            self.upload_finished.emit(result)
+        except Exception as e:
+            self.upload_finished.emit(f"Error: {str(e)}")
 
-        fields["fileToUpload"] = (os.path.basename(self.file_path), open(self.file_path, "rb"), "application/octet-stream")
+    def create_monitor_callback(self, encoder):
+        """Create a callback function for monitoring upload progress."""
+        def callback(monitor):
+            self.bytes_uploaded = monitor.bytes_read
+            if self.total_size > 0:
+                progress = int((self.bytes_uploaded / self.total_size) * 100)
+                self.update_progress.emit(progress)
+                self.update_bytes_uploaded.emit(self.bytes_uploaded)
+        return callback
 
-        max_retries = 3
-        retry_count = 0
+    def upload_to_catbox(self):
+        """Upload file to Catbox."""
+        url = API_CATBOX
+        
+        # Prepare form data
+        fields = {
+            'reqtype': 'fileupload',
+        }
+        
+        # Add userhash if not anonymous
+        if not self.is_anonymous and USER_HASH:
+            fields['userhash'] = USER_HASH
+        
+        # Add the file
+        with open(self.file_path, 'rb') as f:
+            fields['fileToUpload'] = (os.path.basename(self.file_path), f, mimetypes.guess_type(self.file_path)[0])
+            
+            # Create multipart encoder
+            encoder = MultipartEncoder(fields=fields)
+            monitor = MultipartEncoderMonitor(encoder, self.create_monitor_callback(encoder))
+            
+            # Make the request
+            headers = {
+                'Content-Type': monitor.content_type,
+                'User-Agent': USER_AGENT
+            }
+            
+            response = requests.post(url, data=monitor, headers=headers, timeout=None)
+            
+        if response.status_code == 200:
+            result = response.text.strip()
+            if result.startswith('http'):
+                return result
+            elif not result:  # Empty response - server bug
+                return "EMPTY_RESPONSE"
+            else:
+                return f"❌ Upload failed: {result}"
+        else:
+            return f"❌ Upload failed with status code: {response.status_code} \n {response.text.strip()}"
 
-        while retry_count < max_retries:
-            with open(self.file_path, "rb") as f:
-                monitor = MultipartEncoderMonitor(MultipartEncoder(fields=fields), self.update_monitor)
-                headers = {"User-Agent": USER_AGENT, "Content-Type": monitor.content_type}
-                try:
-                    response = self.session.post(api_url, data=monitor, headers=headers, stream=True)
-                    if response.status_code == 200 and "https://" in response.text:
-                        self.upload_finished.emit(response.text.strip())
-                        return
-                    else:
-                        error_msg = f"⚠️ Upload failed: {response.status_code} - {response.text.strip()}"
-                        self.upload_finished.emit(error_msg)
-                        return
-                except requests.exceptions.SSLError as e:
-                    retry_count += 1
-                    if retry_count >= max_retries:
-                        self.upload_finished.emit(f"⚠️ SSL Error: {str(e)} (Max retries exceeded)")
-                        return
-                    time.sleep(5)  # Wait 5 seconds before retrying
-                except requests.exceptions.RequestException as e:
-                    self.upload_finished.emit(f"⚠️ Upload failed: {str(e)}")
-                    return
-
-    def update_monitor(self, monitor):
-        self.bytes_uploaded = monitor.bytes_read
-        progress = int((self.bytes_uploaded / self.file_size) * 100)
-        self.update_progress.emit(progress)  # Emit progress percentage
-        self.update_bytes_uploaded.emit(self.bytes_uploaded)  # Emit bytes uploaded
+    def upload_to_litterbox(self):
+        """Upload file to Litterbox with specified expiration time."""
+        url = API_LITTERBOX
+        
+        # Prepare form data
+        fields = {
+            'reqtype': 'fileupload',
+            'time': self.litterbox_time
+        }
+        
+        # Add the file
+        with open(self.file_path, 'rb') as f:
+            fields['fileToUpload'] = (os.path.basename(self.file_path), f, mimetypes.guess_type(self.file_path)[0])
+            
+            # Create multipart encoder
+            encoder = MultipartEncoder(fields=fields)
+            monitor = MultipartEncoderMonitor(encoder, self.create_monitor_callback(encoder))
+            
+            # Make the request
+            headers = {
+                'Content-Type': monitor.content_type,
+                'User-Agent': USER_AGENT
+            }
+            
+            response = requests.post(url, data=monitor, headers=headers, timeout=None)
+            
+        if response.status_code == 200:
+            result = response.text.strip()
+            if result.startswith('http'):
+                return result
+            elif not result:  # Empty response - server bug
+                return "EMPTY_RESPONSE"
+            else:
+                return f"Upload failed: {result}"
+        else:
+            return f"Upload failed with status code: {response.status_code}"
 
 def pil_image_to_qpixmap(pil_image: Image.Image) -> QPixmap:
     if pil_image.mode != "RGBA":
@@ -249,6 +437,11 @@ def pil_image_to_qpixmap(pil_image: Image.Image) -> QPixmap:
     data = pil_image.tobytes("raw", "RGBA")
     qimage = QImage(data, pil_image.width, pil_image.height, QImage.Format.Format_RGBA8888)
     return QPixmap.fromImage(qimage)
+
+def is_video_file(file_path):
+    """Check if the file is a video file based on extension."""
+    video_extensions = ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.flv', '.wmv', '.m4v', '.3gp']
+    return any(file_path.lower().endswith(ext) for ext in video_extensions)
 
 class UploadWindow(QWidget):
     def __init__(self, file_path, is_anonymous=False, litterbox_time=None):
@@ -353,49 +546,282 @@ class UploadWindow(QWidget):
         self.bytes_uploaded = bytes_uploaded
 
     def update_eta(self):
-        if self.uploading and self.bytes_uploaded > 0:
+        if hasattr(self, 'start_time') and hasattr(self, 'bytes_uploaded') and self.bytes_uploaded > 0:
             elapsed_time = time.time() - self.start_time
-            upload_speed = self.bytes_uploaded / elapsed_time if elapsed_time > 0 else 0
-            remaining_size = self.file_size - self.bytes_uploaded
-            eta = remaining_size / upload_speed if upload_speed > 0 else 0
-
-            self.eta_label.setText(f"ETA: {int(eta)}s")
+            
+            # Check if upload_worker and total_size are available
+            if hasattr(self.upload_worker, 'total_size') and self.upload_worker.total_size > 0:
+                total_bytes = self.upload_worker.total_size
+            else:
+                # Fallback: try to get file size directly
+                try:
+                    total_bytes = os.path.getsize(self.upload_worker.file_path)
+                except:
+                    total_bytes = 0
+            
+            if total_bytes > 0 and elapsed_time > 0:
+                bytes_per_second = self.bytes_uploaded / elapsed_time
+                remaining_bytes = total_bytes - self.bytes_uploaded
+                eta_seconds = remaining_bytes / bytes_per_second
+                
+                # Format ETA with hours, minutes, and seconds
+                if eta_seconds > 3600:  # More than 1 hour
+                    hours = int(eta_seconds // 3600)
+                    minutes = int((eta_seconds % 3600) // 60)
+                    seconds = int(eta_seconds % 60)
+                    eta_text = f"ETA: {hours}h {minutes}m {seconds}s"
+                elif eta_seconds > 60:  # More than 1 minute
+                    minutes = int(eta_seconds // 60)
+                    seconds = int(eta_seconds % 60)
+                    eta_text = f"ETA: {minutes}m {seconds}s"
+                else:  # Less than 1 minute
+                    seconds = int(eta_seconds)
+                    eta_text = f"ETA: {seconds}s"
+                
+                self.eta_label.setText(eta_text)
+            else:
+                self.eta_label.setText("ETA: Calculating...")
         else:
             self.eta_label.setText("ETA: Starting...")
 
     @pyqtSlot(str)
     def update_ui_after_upload(self, result):
-        if "http" in result:
+        if result == "EMPTY_RESPONSE":
+            self.handle_empty_response()
+        elif "http" in result:
             self.file_label.setText(f"<p>✅ Uploaded: <a href='{result}'>{result}</a></p>")
             self.file_label.setOpenExternalLinks(True)
-            QApplication.clipboard().setText(result)
+            
+            # Store the URL for context menu
+            self.file_label.setProperty("upload_url", result.strip())
+            
+            # Set up context menu for URL
+            self.file_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            self.file_label.customContextMenuRequested.connect(self.show_url_context_menu)
+            
+            clipboard = QApplication.clipboard()
+            clipboard.setText(result.strip(), clipboard.Mode.Clipboard)
+            
+            self.cancel_button.setText("OK")
+            self.progress_bar.setValue(100)
+            self.eta_label.setText("Upload Complete")
+
+            if self.is_anonymous:
+                mode = "Anonymous"
+            elif self.litterbox_time:
+                mode = f"Litterbox {self.litterbox_time}"
+            else:
+                mode = "User"
+
+            log_upload(file_path=self.file_path, url=result, mode=mode, expiry_duration=getattr(self, 'litterbox_time', None))
+            self.uploading = False
+            self.timer.stop()  # Stop the timer when the upload is complete
         else:
             self.file_label.setText(result)
+            self.cancel_button.setText("OK")
+            self.progress_bar.setValue(100)
+            self.eta_label.setText("Upload Failed")
+            self.uploading = False
+            self.timer.stop()
+
+    def show_url_context_menu(self, position):
+        """Show context menu for the uploaded URL."""
+        url = self.file_label.property("upload_url")
+        if not url:
+            return
             
-        self.cancel_button.setText("OK")
-        self.progress_bar.setValue(100)
-        self.eta_label.setText("Upload Complete")
+        menu = QMenu(self)
 
-        if self.is_anonymous:
-            mode = "Anonymous"
-        elif self.litterbox_time:
-            mode = f"Litterbox {self.litterbox_time}"
-        else:
-            mode = "User"
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #2D2D2D;
+                color: white;
+                border: 1px solid #555;
+                border-radius: 8px;
+                padding: 2px;
+            }
+            QMenu::item {
+                background-color: transparent;
+                padding: 6px 12px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #0078d4;
+                color: white;
+            }
+            QMenu::item:pressed {
+                background-color: #106ebe;
+            }
+        """)
+        
+        # Copy action
+        copy_action = QAction("Copy URL", self)
+        copy_action.triggered.connect(lambda: QApplication.clipboard().setText(url))
+        menu.addAction(copy_action)
+        
+        # Copy embeddable action (only for videos)
+        if is_video_file(self.file_path):
+            encoded_url = urllib.parse.quote(url, safe='')
+            embed_url = f"https://benny.fun/api/embed?video={encoded_url}"
+            
+            copy_embed_action = QAction("Copy Embeddable", self)
+            copy_embed_action.triggered.connect(lambda: QApplication.clipboard().setText(embed_url))
+            menu.addAction(copy_embed_action)
 
-        log_upload(file_path=self.file_path, url=result, mode=mode, expiry_duration=getattr(self, 'litterbox_time', None))
-        self.uploading = False
-        self.timer.stop()  # Stop the timer when the upload is complete
+        open_action = QAction("Open in Browser", self)
+        open_action.triggered.connect(lambda: self.open_url_in_browser(url))
+        menu.addAction(open_action)
+        
+        menu.exec(self.file_label.mapToGlobal(position))
+
+    def open_url_in_browser(self, url):
+        """Open URL in default browser."""
+        import webbrowser
+        try:
+            webbrowser.open(url)
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to open URL: {str(e)}")
 
     def cancel_upload(self):
-        """Cancels the upload and closes the application."""
-        self.cancelled = True
+        """Cancel the current upload."""
+        if self.uploading:
+            # Stop the upload worker
+            if hasattr(self, 'upload_worker') and self.upload_worker.isRunning():
+                self.upload_worker.terminate()
+                self.upload_worker.wait()
+            
+            # Update UI
+            self.file_label.setText("❌ Upload cancelled")
+            self.progress_bar.setValue(0)
+            self.eta_label.setText("Cancelled")
+            self.cancel_button.setText("OK")
+            self.uploading = False
+            self.cancelled = True
+            self.timer.stop()
+        else:
+            # If not uploading, just close the window
+            self.close()
+
+    def handle_empty_response(self):
+        """Handle empty response from server - known Catbox bug."""
+        self.progress_bar.setValue(100)
+        self.eta_label.setText("Server Bug Detected")
         self.uploading = False
-        self.upload_worker.quit()
+        self.timer.stop()
+        
+        # Create message box with appropriate options
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Server Response Bug")
+        msg_box.setWindowIcon(QIcon(ico_path))
+        msg_box.setIcon(QMessageBox.Icon.Warning)
+        
+        if self.litterbox_time:
+            msg_box.setText("Catbox server bug detected!")
+            msg_box.setInformativeText(
+                "The file was likely uploaded to Litterbox successfully, but the server "
+                "didn't return the link due to a known bug (especially common with GIFs).\n"
+                "It also may be corrupted, a re-upload would ensure the uploaded file is not corrupted.\n\n"
+                "What would you like to do?"
+            )
+        elif self.is_anonymous:
+            msg_box.setText("Catbox server bug detected!")
+            msg_box.setInformativeText(
+                "The file was likely uploaded anonymously to Catbox successfully, but the server "
+                "didn't return the link due to a known bug (especially common with GIFs).\n"
+                "It also may be corrupted, a re-upload would ensure the uploaded file is not corrupted.\n\n"
+                "What would you like to do?"
+            )
+        else:
+            msg_box.setText("Catbox server bug detected!")
+            msg_box.setInformativeText(
+                "The file was likely uploaded to your Catbox account successfully, but the server "
+                "didn't return the link due to a known bug (especially common with GIFs).\n"
+                "It also may be corrupted, a re-upload would ensure the uploaded file is not corrupted.\n\n"
+                "What would you like to do?"
+            )
+        
+        # Add buttons based on upload type
+        reupload_btn = msg_box.addButton("Reupload File", QMessageBox.ButtonRole.ActionRole)
+        
+        if not self.is_anonymous and not self.litterbox_time:
+            dashboard_btn = msg_box.addButton("Open Dashboard", QMessageBox.ButtonRole.ActionRole)
+        else:
+            dashboard_btn = None
+            
+        cancel_btn = msg_box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        
+        msg_box.setDefaultButton(reupload_btn)
+        msg_box.exec()
+        
+        clicked_button = msg_box.clickedButton()
+        
+        if clicked_button == reupload_btn:
+            self.reupload_file()
+        elif dashboard_btn and clicked_button == dashboard_btn:
+            self.open_catbox_dashboard()
+        else:
+            # Cancel - just update UI to show the situation
+            self.file_label.setText("❌ Upload completed but link not returned due to server bug")
+            self.cancel_button.setText("OK")
 
-        self.close()
-        os._exit(0)
+    def reupload_file(self):
+        """Restart the upload process."""
+        self.file_label.setText(f"Re-uploading: {os.path.basename(self.file_path)}")
+        self.progress_bar.setValue(0)
+        self.eta_label.setText("ETA: Starting...")
+        self.cancel_button.setText("Cancel")
+        self.uploading = True
+        self.start_time = time.time()
+        self.bytes_uploaded = 0
+        
+        # Create new worker and restart upload
+        self.upload_worker = UploadWorker(self.file_path, self.is_anonymous, self.litterbox_time)
+        self.upload_worker.update_progress.connect(self.update_progress)
+        self.upload_worker.update_bytes_uploaded.connect(self.update_bytes_uploaded)
+        self.upload_worker.upload_finished.connect(self.update_ui_after_upload)
+        self.upload_worker.start()
+        
+        # Restart timer
+        self.timer.start(500)
 
+    def open_catbox_dashboard(self):
+        """Open Catbox login page and dashboard in browser."""
+        import webbrowser
+        
+        try:
+            # Open login page first
+            webbrowser.open("https://catbox.moe/user/login.php")
+            
+            # Show instructions
+            info_msg = QMessageBox(self)
+            info_msg.setWindowTitle("Dashboard Instructions")
+            info_msg.setWindowIcon(QIcon(ico_path))
+            info_msg.setIcon(QMessageBox.Icon.Information)
+            info_msg.setText("Browser opened to Catbox login page")
+            info_msg.setInformativeText(
+                "1. Log in with your account\n"
+                "2. Navigate to your files dashboard\n"
+                "3. Look for your recently uploaded file\n\n"
+                "Click OK to open the dashboard page directly."
+            )
+            info_msg.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+            
+            if info_msg.exec() == QMessageBox.StandardButton.Ok:
+                # Open dashboard page
+                webbrowser.open("https://catbox.moe/user/view.php")
+                
+        except Exception as e:
+            error_msg = QMessageBox(self)
+            error_msg.setWindowTitle("Error")
+            error_msg.setWindowIcon(QIcon(ico_path))
+            error_msg.setIcon(QMessageBox.Icon.Critical)
+            error_msg.setText(f"Failed to open browser: {str(e)}")
+            error_msg.exec()
+        
+        # Update UI to show action taken
+        self.file_label.setText("🌐 Dashboard opened in browser - check for your uploaded file")
+        self.cancel_button.setText("OK")
+        
 class ErrorDialog(QDialog):
     def __init__(self, message, parent=None):
         super().__init__(parent)
@@ -438,6 +864,33 @@ def show_critical_error(exc_type, exc_value, exc_traceback):
     dialog = ErrorDialog(error_msg)
     dialog.exec()
 
+def ensure_icons_directory():
+    """Ensure the icons directory exists and create placeholder icons if needed."""
+    if not os.path.exists(icons_dir):
+        os.makedirs(icons_dir)
+    
+    # List of required icon files
+    required_icons = [
+        "upload_user.ico", 
+        "upload_anon.ico", 
+        "edit_userhash.ico", 
+        "history.ico",
+        "reload.ico",
+        "del.ico", 
+        "bin.ico"
+    ]
+    
+    # Copy main icon as fallback for missing icons
+    main_icon_path = os.path.join(application_path, "icon.ico")
+    for icon_file in required_icons:
+        icon_path = os.path.join(icons_dir, icon_file)
+        if not os.path.exists(icon_path) and os.path.exists(main_icon_path):
+            try:
+                import shutil
+                shutil.copy2(main_icon_path, icon_path)
+            except Exception:
+                pass  # Ignore copy errors
+
 if __name__ == "__main__":
     main()
     app = QApplication(sys.argv)
@@ -445,6 +898,8 @@ if __name__ == "__main__":
     sys.excepthook = show_critical_error  # Handle uncaught exceptions
 
     try:
+        ensure_icons_directory()  # Ensure icons directory and files are set up
+
         if args.history:
             from history_viewer import show_history_window
             show_history_window()

@@ -5,14 +5,17 @@ import sys
 import time
 import winreg
 from datetime import datetime
+import urllib.parse
+import shutil
 
 import requests
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QIcon, QPixmap, QAction, QCursor
 from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout,
                              QHeaderView, QLabel, QMainWindow, QMenu,
                              QMessageBox, QPushButton, QTableWidget,
-                             QTableWidgetItem, QVBoxLayout, QWidget, QToolTip)
+                             QTableWidgetItem, QVBoxLayout, QWidget, QToolTip,
+                             QDialog, QProgressBar, QTextEdit, QCheckBox)
 
 from thumb import generate_thumbnail
 
@@ -25,12 +28,84 @@ else:
 DB_NAME = "catbox.db"
 EXPIRED_ICON_ID = 16777
 SHELL32_DLL = "C:\\WINDOWS\\System32\\SHELL32.dll"
-ico_path = os.path.join(application_path, "icon.ico")
+ico_path = os.path.join(application_path, "icons", "icon.ico")
 REG_PATH = r"Software\CatboxUploader"
 
 # API Endpoints
 API_CATBOX = "https://catbox.moe/user/api.php"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+
+def get_database_path():
+    """Get the database path, preferring %APPDATA%/Catbox Uploader/ location."""
+    # New location in %APPDATA%
+    appdata_path = os.path.expandvars(r"%APPDATA%\Catbox Uploader")
+    new_db_path = os.path.join(appdata_path, DB_NAME)
+    
+    # Old location in working directory
+    old_db_path = os.path.join(application_path, DB_NAME)
+    
+    # Create %APPDATA%/Catbox Uploader directory if it doesn't exist
+    os.makedirs(appdata_path, exist_ok=True)
+    
+    # Check if old database exists and new one doesn't
+    if os.path.exists(old_db_path) and not os.path.exists(new_db_path):
+        try:
+            shutil.move(old_db_path, new_db_path)
+            print(f"✅ Migrated database from {old_db_path} to {new_db_path}")
+        except Exception as e:
+            print(f"⚠️ Failed to migrate database: {e}")
+            # Fall back to old location if migration fails
+            return old_db_path
+    
+    return new_db_path
+
+def ensure_database_schema():
+    """Ensure the database exists and has the correct schema."""
+    db_path = get_database_path()
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Check if uploads table exists
+        cursor.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='uploads'
+        """)
+        
+        table_exists = cursor.fetchone() is not None
+        
+        if not table_exists:
+            # Create the uploads table
+            cursor.execute("""
+                CREATE TABLE uploads (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_path TEXT,
+                    url TEXT,
+                    mode TEXT,
+                    timestamp INTEGER,
+                    expiry_duration TEXT,
+                    is_deleted INTEGER DEFAULT 0
+                )
+            """)
+            print("✅ Created uploads table")
+        else:
+            # Check if is_deleted column exists (for backward compatibility)
+            cursor.execute("PRAGMA table_info(uploads)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'is_deleted' not in columns:
+                cursor.execute("ALTER TABLE uploads ADD COLUMN is_deleted INTEGER DEFAULT 0")
+                print("✅ Added is_deleted column to uploads table")
+        
+        conn.commit()
+        conn.close()
+        print(f"✅ Database schema validated: {db_path}")
+        return db_path
+        
+    except Exception as e:
+        print(f"❌ Database schema validation failed: {e}")
+        return None
 
 def read_registry_value(name):
     """Read a value from Windows Registry under HKEY_CURRENT_USER."""
@@ -68,24 +143,132 @@ def delete_files(urls, userhash):
     except requests.RequestException as e:
         return f"❌ Error while deleting files: {str(e)}"
 
+class MassDeleteWorker(QThread):
+    progress_updated = pyqtSignal(int, int, str)  # current, total, message
+    finished_signal = pyqtSignal(list)  # list of successfully deleted URLs
+
+    def __init__(self, urls, userhash):
+        super().__init__()
+        self.urls = urls
+        self.userhash = userhash
+        self.deleted_urls = []
+
+    def run(self):
+        total = len(self.urls)
+        for i, url in enumerate(self.urls, 1):
+            filename = os.path.basename(url)
+            self.progress_updated.emit(i, total, f"Deleting {filename}...")
+            
+            try:
+                response = delete_files([url], self.userhash)
+                if response:
+                    # Handle various response cases
+                    response_lower = response.lower()
+                    if "file doesn't exist" in response_lower or "not found" in response_lower:
+                        # File already deleted from Catbox
+                        self.deleted_urls.append(url)
+                        self.progress_updated.emit(i, total, f"✓ {filename} (already deleted from Catbox)")
+                    elif "permission denied" in response_lower or "invalid hash" in response_lower:
+                        # Different userhash or no permission
+                        self.progress_updated.emit(i, total, f"⚠️ {filename} (no permission - different userhash?)")
+                    elif "error" not in response_lower:
+                        # Successfully deleted
+                        self.deleted_urls.append(url)
+                        self.progress_updated.emit(i, total, f"✓ {filename} (deleted)")
+                    else:
+                        # Other error
+                        self.progress_updated.emit(i, total, f"❌ {filename} (error: {response})")
+                else:
+                    self.progress_updated.emit(i, total, f"❌ {filename} (no response)")
+            except Exception as e:
+                self.progress_updated.emit(i, total, f"❌ {filename} (exception: {str(e)})")
+            
+            time.sleep(0.1)  # Small delay to show progress
+        
+        self.finished_signal.emit(self.deleted_urls)
+
+class MassDeleteDialog(QDialog):
+    def __init__(self, urls, userhash, parent=None):
+        super().__init__(parent)
+        self.urls = urls  # Store the URLs list
+        self.setWindowTitle("Mass Delete Progress")
+        self.setWindowIcon(QIcon(ico_path))
+        self.setFixedSize(500, 200)
+        self.setModal(True)
+        
+        layout = QVBoxLayout()
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, len(urls))
+        layout.addWidget(self.progress_bar)
+        
+        self.status_label = QLabel("Starting deletion process...")
+        layout.addWidget(self.status_label)
+        
+        self.log_text = QTextEdit()
+        self.log_text.setMaximumHeight(100)
+        layout.addWidget(self.log_text)
+        
+        self.setLayout(layout)
+        
+        # Start the worker
+        self.worker = MassDeleteWorker(urls, userhash)
+        self.worker.progress_updated.connect(self.update_progress)
+        self.worker.finished_signal.connect(self.deletion_finished)
+        self.worker.start()
+        
+    def update_progress(self, current, total, message):
+        self.progress_bar.setValue(current)
+        self.status_label.setText(f"{current}/{total} files processed")
+        self.log_text.append(message)
+        
+    def deletion_finished(self, deleted_urls):
+        processed_count = len(self.urls)  # Now self.urls is available
+        success_count = len(deleted_urls)
+        
+        if success_count == processed_count:
+            self.status_label.setText(f"<font color='green'>✅ All {processed_count} files processed successfully!</font>")
+        else:
+            failed_count = processed_count - success_count
+            self.status_label.setText(f"<font color='orange'>⚠️ {success_count}/{processed_count} files processed successfully. {failed_count} failed or skipped.</font>")
+        
+        self.status_label.setTextFormat(Qt.TextFormat.RichText)
+        
+        # Update database to mark files as deleted (including already deleted ones)
+        if deleted_urls:
+            db_path = ensure_database_schema()
+            if db_path:
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                for url in deleted_urls:
+                    cursor.execute("UPDATE uploads SET is_deleted = 1 WHERE url = ?", (url,))
+                conn.commit()
+                conn.close()
+        
+        # Add OK button
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(self.accept)
+        self.layout().addWidget(ok_button)
+        
+        self.deleted_urls = deleted_urls
+
+def is_video_file(url):
+    """Check if the URL points to a video file based on extension."""
+    video_extensions = ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.flv', '.wmv', '.m4v', '.3gp']
+    url_lower = url.lower()
+    return any(url_lower.endswith(ext) for ext in video_extensions)
+
 def log_upload(file_path, url, mode, expiry_duration=None):
+    db_path = ensure_database_schema()
+    if not db_path:
+        print("❌ Failed to initialize database")
+        return
+        
     try:
         file_path = os.path.abspath(file_path)
-        db_path = os.path.join(application_path, DB_NAME)
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS uploads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_path TEXT,
-                url TEXT,
-                mode TEXT,
-                timestamp INTEGER,
-                expiry_duration TEXT,
-                is_deleted INTEGER DEFAULT 0
-            )
-        """)
-
+        
         cursor.execute("""
             INSERT INTO uploads (file_path, url, mode, timestamp, expiry_duration, is_deleted)
             VALUES (?, ?, ?, ?, ?, 0)
@@ -103,16 +286,20 @@ def log_upload(file_path, url, mode, expiry_duration=None):
         print(f"⚠️ Failed to log upload: {e}")
 
 def load_uploads():
-    db_path = os.path.join(application_path, DB_NAME)
-    if not os.path.exists(db_path):
+    db_path = ensure_database_schema()
+    if not db_path:
         return []
 
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute("SELECT file_path, url, mode, timestamp, expiry_duration, is_deleted FROM uploads ORDER BY timestamp DESC")
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT file_path, url, mode, timestamp, expiry_duration, is_deleted FROM uploads ORDER BY timestamp DESC")
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"❌ Failed to load uploads: {e}")
+        return []
 
 def format_mode(mode, expiry, timestamp):
     if "Litterbox" in mode and expiry:
@@ -144,7 +331,7 @@ def create_thumbnail(path, deleted=False):
             return QIcon(pixmap)
         except:
             pass
-    return QIcon(os.path.join(application_path, "del.ico"))
+    return QIcon(os.path.join(application_path, "icons", "del.ico"))
 
 def show_history_window():
     window = QMainWindow()
@@ -154,7 +341,7 @@ def show_history_window():
 
     # Add reload button
     reload_button = QPushButton()
-    reload_button.setIcon(QIcon(os.path.join(application_path, "reload.ico")))
+    reload_button.setIcon(QIcon(os.path.join(application_path, "icons", "reload.ico")))
     reload_button.setFixedSize(30, 30)
     reload_button.setToolTip("Reload")
     reload_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -188,6 +375,33 @@ def show_history_window():
             background-color: #3C3C3C;
             color: white;
         }
+        QTableWidget::item {
+            border: none;
+        }
+        QCheckBox {
+            spacing: 5px;
+        }
+        QCheckBox::indicator {
+            width: 18px;
+            height: 18px;
+            background-color: #404040;
+            border: 2px solid #606060;
+            border-radius: 3px;
+        }
+        QCheckBox::indicator:checked {
+            background-color: #0078d4;
+            border: 2px solid #0078d4;
+        }
+        QTableWidget::item {
+            selection-background-color: #0078d4;
+        }
+        QTableWidgetItem:checked {
+            background-color: #0078d4;
+            color: white;
+        }
+        QCheckBox::indicator:hover {
+            border: 2px solid #106ebe;
+        }
     """)
 
     def load_table_data():
@@ -202,10 +416,17 @@ def show_history_window():
             table.setRowHeight(row_index, 50)
 
             # 0. Checkbox
-            checkbox = QTableWidgetItem()
-            checkbox.setCheckState(Qt.CheckState.Unchecked)
-            checkbox.setFlags(Qt.ItemFlag.NoItemFlags)  # Initially disabled
-            table.setItem(row_index, 0, checkbox)
+            checkbox_widget = CustomCheckBox()
+            checkbox_widget.setChecked(False)
+            checkbox_widget.setEnabled(False)  # Initially disabled
+            
+            # Center the checkbox
+            checkbox_container = QWidget()
+            checkbox_layout = QHBoxLayout(checkbox_container)
+            checkbox_layout.addWidget(checkbox_widget)
+            checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            checkbox_layout.setContentsMargins(0, 0, 0, 0)
+            table.setCellWidget(row_index, 0, checkbox_container)
 
             # 1. Thumbnail
             icon = create_thumbnail(file_path, deleted=not file_exists)
@@ -219,12 +440,23 @@ def show_history_window():
             display_path = file_path
             if not file_exists:
                 display_path = f"<s><font color='red'>{file_path}</font></s>"
+            
             file_label = QLabel()
             file_label.setTextFormat(Qt.TextFormat.RichText)
             file_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             file_label.setText(display_path)
-            table.setCellWidget(row_index, 2, file_label)
             file_label.setToolTip(file_path)
+            
+            # Make file path clickable if file exists
+            if file_exists:
+                file_label.setCursor(Qt.CursorShape.PointingHandCursor)
+                file_label.mousePressEvent = lambda event, path=file_path: open_file_in_default_app(path) if event.button() == Qt.MouseButton.LeftButton else None
+            
+            # Set up custom context menu for file path
+            file_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            file_label.customContextMenuRequested.connect(lambda pos, widget=file_label, path=file_path: show_file_context_menu(widget, pos, path))
+            
+            table.setCellWidget(row_index, 2, file_label)
 
             # 3. Mode
             mode_item = QTableWidgetItem(mode_label)
@@ -252,6 +484,10 @@ def show_history_window():
 
             # Set raw URL as a property (for later retrieval)
             url_label.setProperty("raw_url", url)
+            
+            # Set up custom context menu for URL
+            url_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            url_label.customContextMenuRequested.connect(lambda pos, widget=url_label: show_url_context_menu(widget, pos))
 
             # Display formatted text
             if is_expired:
@@ -276,7 +512,7 @@ def show_history_window():
             # 7. Delete Button for "User" uploads only
             if mode == "User":
                 delete_button = QPushButton()
-                delete_button.setIcon(QIcon(os.path.join(application_path, "bin.ico")))
+                delete_button.setIcon(QIcon(os.path.join(application_path, "icons", "bin.ico")))
                 delete_button.setFixedHeight(30)
                 delete_button.setToolTip("Delete file from Catbox")
                 delete_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -300,12 +536,13 @@ def show_history_window():
                                     QMessageBox.critical(window, "Error", f"❌ Failed to delete:\n{response}")
                                 else:
                                     # Update DB
-                                    db_path = os.path.join(application_path, "catbox.db")
-                                    conn = sqlite3.connect(db_path)
-                                    cursor = conn.cursor()
-                                    cursor.execute("UPDATE uploads SET is_deleted = 1 WHERE url = ?", (file_url,))
-                                    conn.commit()
-                                    conn.close()
+                                    db_path = ensure_database_schema()
+                                    if db_path:
+                                        conn = sqlite3.connect(db_path)
+                                        cursor = conn.cursor()
+                                        cursor.execute("UPDATE uploads SET is_deleted = 1 WHERE url = ?", (file_url,))
+                                        conn.commit()
+                                        conn.close()
 
                                     # Disable button
                                     button.setEnabled(False)
@@ -363,45 +600,125 @@ def show_history_window():
     button_layout = QHBoxLayout()
     select_button = QPushButton("Select")
     select_all_button = QPushButton("Select All")
+    mass_delete_button = QPushButton()
+    mass_delete_button.setIcon(QIcon(os.path.join(application_path, "icons", "bin.ico")))
+    mass_delete_button.setToolTip("Mass Delete Selected Files from Catbox")
     remove_selection_button = QPushButton("Remove Selection")
 
     select_all_button.setVisible(False)
+    mass_delete_button.setVisible(False)
     remove_selection_button.setVisible(False)
     remove_selection_button.setEnabled(False)
+
+    def get_checkbox_widget(row):
+        """Get the checkbox widget from a table row."""
+        container = table.cellWidget(row, 0)
+        if container:
+            return container.findChild(CustomCheckBox)
+        return None
+
+    def set_checkbox_checked(row, checked):
+        """Set the checkbox state for a table row."""
+        checkbox = get_checkbox_widget(row)
+        if checkbox:
+            checkbox.setChecked(checked)
+
+    def is_checkbox_checked(row):
+        """Check if the checkbox is checked for a table row."""
+        checkbox = get_checkbox_widget(row)
+        return checkbox.isChecked() if checkbox else False
+
+    def set_checkbox_enabled(row, enabled):
+        """Enable or disable the checkbox for a table row."""
+        checkbox = get_checkbox_widget(row)
+        if checkbox:
+            checkbox.setEnabled(enabled)
 
     def toggle_select_mode():
         if select_button.text() == "Select":
             select_button.setText("Cancel")
             select_all_button.setVisible(True)
+            mass_delete_button.setVisible(True)
             remove_selection_button.setVisible(True)
             remove_selection_button.setEnabled(True)
             table.setColumnHidden(0, False)  # Show checkbox column
             for row in range(table.rowCount()):
-                table.item(row, 0).setCheckState(Qt.CheckState.Unchecked)
-                table.item(row, 0).setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+                set_checkbox_checked(row, False)
+                set_checkbox_enabled(row, True)
         else:
             select_button.setText("Select")
             select_all_button.setVisible(False)
+            mass_delete_button.setVisible(False)
             remove_selection_button.setVisible(False)
             table.setColumnHidden(0, True)  # Hide checkbox column
             for row in range(table.rowCount()):
-                table.item(row, 0).setCheckState(Qt.CheckState.Unchecked)
-                table.item(row, 0).setFlags(Qt.ItemFlag.NoItemFlags)
+                set_checkbox_checked(row, False)
+                set_checkbox_enabled(row, False)
 
     def select_all():
         for row in range(table.rowCount()):
-            table.item(row, 0).setCheckState(Qt.CheckState.Checked)
+            set_checkbox_checked(row, True)
         remove_selection_button.setEnabled(True)
 
     def clear_selection():
         for row in range(table.rowCount()):
-            table.item(row, 0).setCheckState(Qt.CheckState.Unchecked)
+            set_checkbox_checked(row, False)
         remove_selection_button.setEnabled(False)
+
+    def mass_delete_selection():
+        # Get selected User uploads only (skip expired ones)
+        selected_urls = []
+        uploads = load_uploads()
+        
+        for row in range(table.rowCount()):
+            if is_checkbox_checked(row):
+                # Get the original upload data
+                if row < len(uploads):
+                    file_path, url, mode, timestamp, expiry, is_deleted = uploads[row]
+                    # Only include User mode uploads that aren't already deleted
+                    if mode == "User" and not is_deleted:
+                        selected_urls.append(url)
+
+        if not selected_urls:
+            QMessageBox.warning(window, "No Files", "No User mode files selected for deletion.")
+            return
+
+        userhash = read_registry_value("userhash")
+        if not userhash:
+            QMessageBox.critical(window, "Error", "Userhash is required for deletion.")
+            return
+
+        # Show mass delete dialog
+        dialog = MassDeleteDialog(selected_urls, userhash, window)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # Ask if user wants to remove from database too
+            if dialog.deleted_urls:
+                confirm = QMessageBox.question(
+                    window,
+                    "Remove from Database?",
+                    f"{len(dialog.deleted_urls)} files were successfully processed. Do you want to remove only the successfully deleted items from the history list as well?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                
+                if confirm == QMessageBox.StandardButton.Yes:
+                    # Remove only the successfully deleted URLs from database
+                    db_path = ensure_database_schema()
+                    if db_path:
+                        conn = sqlite3.connect(db_path)
+                        cursor = conn.cursor()
+                        for url in dialog.deleted_urls:
+                            cursor.execute("DELETE FROM uploads WHERE url = ?", (url,))
+                        conn.commit()
+                        conn.close()
+                
+                # Refresh the window
+                window.close()
+                show_history_window()
 
     def remove_selection():
         selected_urls = []
         for row in range(table.rowCount()):
-            if table.item(row, 0).checkState() == Qt.CheckState.Checked:
+            if is_checkbox_checked(row):
                 url_widget = table.cellWidget(row, 5)
                 if isinstance(url_widget, QLabel):
                     raw_url = url_widget.property("raw_url")
@@ -416,25 +733,28 @@ def show_history_window():
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             if confirm == QMessageBox.StandardButton.Yes:
-                db_path = os.path.join(application_path, "catbox.db")
-                conn = sqlite3.connect(db_path)
-                cursor = conn.cursor()
-                for url in selected_urls:
-                    cursor.execute("DELETE FROM uploads WHERE url = ?", (url,))
-                    print(f"Successfully deleted {url}")
-                conn.commit()
-                conn.close()
-                QMessageBox.information(window, "Success", "Selected items have been removed from the database.")
-                window.close()
-                show_history_window()
+                db_path = ensure_database_schema()
+                if db_path:
+                    conn = sqlite3.connect(db_path)
+                    cursor = conn.cursor()
+                    for url in selected_urls:
+                        cursor.execute("DELETE FROM uploads WHERE url = ?", (url,))
+                        print(f"Successfully deleted {url}")
+                    conn.commit()
+                    conn.close()
+                    QMessageBox.information(window, "Success", "Selected items have been removed from the database.")
+                    window.close()
+                    show_history_window()
 
     select_button.clicked.connect(toggle_select_mode)
     select_all_button.clicked.connect(select_all)
+    mass_delete_button.clicked.connect(mass_delete_selection)
     remove_selection_button.clicked.connect(remove_selection)
 
     button_layout.addWidget(select_button)
     button_layout.addWidget(select_all_button)
     button_layout.addStretch()
+    button_layout.addWidget(mass_delete_button)
     button_layout.addWidget(remove_selection_button)
 
     layout.addLayout(button_layout)
@@ -458,20 +778,227 @@ def show_history_window():
             doc = QTextDocument()
             doc.setHtml(widget.text())
             text = doc.toPlainText()
+            
+            # Special handling for URL column (column 5)
+            if column == 5:
+                raw_url = widget.property("raw_url")
+                if raw_url:
+                    show_url_context_menu(widget, pos)
+                    return
+            # Special handling for File Path column (column 2)
+            elif column == 2:
+                # This will be handled by the file_label's custom context menu
+                return
         elif item:
             text = item.text()
         else:
             return
 
+        # Default context menu for other columns
         menu = QMenu()
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #2D2D2D;
+                color: white;
+                border: 1px solid #555;
+                border-radius: 8px;
+                padding: 2px;
+            }
+            QMenu::item {
+                background-color: transparent;
+                padding: 6px 12px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #0078d4;
+                color: white;
+            }
+            QMenu::item:pressed {
+                background-color: #106ebe;
+            }
+        """)
         copy_action = QAction("Copy")
         copy_action.triggered.connect(lambda: QApplication.clipboard().setText(text))
         menu.addAction(copy_action)
         menu.exec(QCursor.pos())
 
+    def show_url_context_menu(widget, pos):
+        """Show custom context menu for URL labels."""
+        raw_url = widget.property("raw_url")
+        if not raw_url:
+            return
+        
+        menu = QMenu()
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #2D2D2D;
+                color: white;
+                border: 1px solid #555;
+                border-radius: 8px;
+                padding: 4px;
+            }
+            QMenu::item {
+                background-color: transparent;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #0078d4;
+                color: white;
+            }
+            QMenu::item:pressed {
+                background-color: #106ebe;
+            }
+        """)
+        
+        # Copy action
+        copy_action = QAction("Copy", menu)
+        copy_action.triggered.connect(lambda: QApplication.clipboard().setText(raw_url))
+        menu.addAction(copy_action)
+        
+        # Copy embeddable action (only for videos)
+        if is_video_file(raw_url):
+            encoded_url = urllib.parse.quote(raw_url, safe='')
+            embed_url = f"https://benny.fun/api/embed?video={encoded_url}"
+            
+            copy_embed_action = QAction("Copy Embeddable", menu)
+            copy_embed_action.triggered.connect(lambda: QApplication.clipboard().setText(embed_url))
+            menu.addAction(copy_embed_action)
+        
+        open_action = QAction("Open in Browser", menu)
+        open_action.triggered.connect(lambda: open_url_in_browser(raw_url))
+        menu.addAction(open_action)
+        
+        menu.exec(widget.mapToGlobal(pos))
+
     table.setColumnHidden(0, True)  # Initially hide checkbox column
     window.show()
 
+def open_url_in_browser(self, url):
+    """Open URL in default browser."""
+    import webbrowser
+    try:
+        webbrowser.open(url)
+    except Exception as e:
+        QMessageBox.warning(self, "Error", f"Failed to open URL: {str(e)}")
+
+def open_file_in_default_app(file_path):
+    """Open file in default application."""
+    try:
+        os.startfile(file_path)
+    except Exception as e:
+        QMessageBox.critical(None, "Error", f"Failed to open file:\n{str(e)}")
+
+def show_file_in_explorer(file_path):
+    """Show file in Windows Explorer."""
+    try:
+        import subprocess
+        subprocess.run(f'explorer /select,"{file_path}"', shell=True)
+    except Exception as e:
+        QMessageBox.critical(None, "Error", f"Failed to show file in explorer:\n{str(e)}")
+
+def show_file_context_menu(widget, pos, file_path):
+    """Show custom context menu for file path labels."""
+    menu = QMenu()
+    menu.setStyleSheet("""
+        QMenu {
+            background-color: #2D2D2D;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 8px;
+            padding: 2px;
+        }
+        QMenu::item {
+            background-color: transparent;
+            padding: 6px 12px;
+            border-radius: 4px;
+        }
+        QMenu::item:selected {
+            background-color: #0078d4;
+            color: white;
+        }
+        QMenu::item:pressed {
+            background-color: #106ebe;
+        }
+    """)
+    
+    # Copy file path action
+    copy_action = QAction("Copy Path", menu)
+    copy_action.triggered.connect(lambda: QApplication.clipboard().setText(file_path))
+    menu.addAction(copy_action)
+    
+    # Open file action (only if file exists)
+    if os.path.exists(file_path):
+        open_action = QAction("Open File", menu)
+        open_action.triggered.connect(lambda: open_file_in_default_app(file_path))
+        menu.addAction(open_action)
+        
+        # Show in folder action
+        show_in_folder_action = QAction("Show in Folder", menu)
+        show_in_folder_action.triggered.connect(lambda: show_file_in_explorer(file_path))
+        menu.addAction(show_in_folder_action)
+    
+    menu.exec(widget.mapToGlobal(pos))
+
+class CustomCheckBox(QWidget):
+    """Custom checkbox widget with visible checkmark."""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.checked = False
+        self.setFixedSize(20, 20)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+    def setChecked(self, checked):
+        self.checked = checked
+        self.update()
+        
+    def isChecked(self):
+        return self.checked
+        
+    def setEnabled(self, enabled):
+        super().setEnabled(enabled)
+        self.setCursor(Qt.CursorShape.PointingHandCursor if enabled else Qt.CursorShape.ArrowCursor)
+        
+    def mousePressEvent(self, event):
+        if self.isEnabled() and event.button() == Qt.MouseButton.LeftButton:
+            self.setChecked(not self.checked)
+            
+    def paintEvent(self, event):
+        from PyQt6.QtGui import QPainter, QPen, QBrush, QFont
+        
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Draw the checkbox background
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        
+        if self.checked:
+            # Blue background when checked
+            brush = QBrush(QColor(0, 120, 212))  # #0078d4
+            painter.setBrush(brush)
+            painter.setPen(QPen(QColor(0, 120, 212), 2))
+        else:
+            # Gray background when unchecked
+            brush = QBrush(QColor(64, 64, 64))  # #404040
+            painter.setBrush(brush)
+            painter.setPen(QPen(QColor(96, 96, 96), 2))  # #606060
+            
+        painter.drawRoundedRect(rect, 3, 3)
+        
+        # Draw checkmark if checked
+        if self.checked:
+            painter.setPen(QPen(QColor(255, 255, 255), 2))  # White checkmark
+            # Draw checkmark path
+            check_points = [
+                (rect.left() + 4, rect.center().y()),
+                (rect.center().x() - 1, rect.bottom() - 5),
+                (rect.right() - 4, rect.top() + 4)
+            ]
+            
+            for i in range(len(check_points) - 1):
+                painter.drawLine(check_points[i][0], check_points[i][1], 
+                               check_points[i+1][0], check_points[i+1][1])
 def reload_history(window):
     window.close()
     show_history_window()

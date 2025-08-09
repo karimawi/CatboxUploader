@@ -60,7 +60,7 @@ A Windows-based context menu tool to upload files to [Catbox.moe](https://catbox
    ```
 3. Build using `PyInstaller`:
 ```bash
-pyinstaller --noconfirm --onedir --windowed --icon ".\icon.ico" --add-data ".\bin.ico;." --add-data ".\del.ico;." --add-data ".\icon.ico;." --add-data ".\reload.ico;." --add-data ".`\unins.vbs;."  ".\catbox.py"
+pyinstaller --noconfirm --onedir --windowed --icon ".\icons\icon.ico" --add-data ".\icons;icons" --add-data ".\unins.vbs;." ".\catbox.py"
 ```
 
 ### 📂 2. Run Once to Setup Context Menu
@@ -115,9 +115,12 @@ Each upload is logged with:
 - 🔗 Link to uploaded file
 - 🖼️ Thumbnail (for media types)
 - 📅 Timestamp
-- 📄 Local file path (with deleted file marking if missing)
+- 📄 **Clickable local file path** (opens file in default app when clicked)
+- 🗂️ **Right-click file path menu** with "Copy Path", "Open File", and "Show in Folder" options
 - 🗑️ Supports deleting the file from Catbox for user uploaded files
 - ❌ Supports bulk select and remove from history with select mode
+- 🗑️ **Mass delete selected files** from Catbox with live progress tracking
+- 🎬 **Right-click context menu** for video URLs with embeddable link option
 
 ![Upload History](https://files.catbox.moe/xyhk8m.png)
 
@@ -150,11 +153,13 @@ Use `--edit-userhash` anytime to update it via a GUI prompt.
 - You might struggle with SSL or Timeout error when uploading large files, this is due to the Catbox's API limitiations, it cannot keep an open connection for such long periods of time if you don't have fast enough internet to upload your file
 ---
 ## 📃 TODO
-- [ ] Make the file paths in the history window clickable to open the file in the default app
-- [ ] Right-click path context menu, add an option to view file in folder
-- [ ] Include minutes and hours in ETA calculations
-- [ ] Fix copying invalid blob
-- [ ] Implement a button to copy an embeddable URL to enable video preview with [Benny's Embed Generator](https://benny.fun/embed) for apps like Discord
+- [x] ~~Make the file paths in the history window clickable to open the file in the default app~~ ✅ **Implemented clickable file paths**
+- [x] ~~Right-click path context menu, add an option to view file in folder~~ ✅ **Added file context menu with "Show in Folder" option**
+- [x] ~~Include minutes and hours in ETA calculations~~ ✅ **Enhanced ETA display with hours, minutes, and seconds**
+- [x] ~~Fix copying invalid blob~~ ✅ **Fixed clipboard copying**
+- [x] ~~Implement a button to copy an embeddable URL to enable video preview with [Benny's Embed Generator](https://benny.fun/embed) for apps like Discord~~ ✅ **Added right-click context menu for video embeds**
+- [x] ~~Mass delete functionality~~ ✅ **Added mass delete with progress tracking**
+
 ---
 
 ## 🐾 Credits
