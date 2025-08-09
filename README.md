@@ -70,7 +70,7 @@ pyinstaller --noconfirm --onedir --windowed --icon ".\icons\icon.ico" --add-data
 ## 🖱️ Usage
 
 Right-click any file and choose one of the options:
-![Context Menu Options](https://files.catbox.moe/7tw3ly.png)
+![Context Menu Options](https://files.catbox.moe/die405.png)
 
 
 ### 📤 Catbox Menu
@@ -105,7 +105,7 @@ catbox.exe [--anonymous] [--litterbox {1h,12h,24h,72h}] <file>
 
 ---
 
-![Upload & Userhash Demo](https://files.catbox.moe/9vswu6.png)
+![Upload Demo](https://files.catbox.moe/2r16w9.png)
 
 
 ## 📁 Upload History
@@ -122,7 +122,7 @@ Each upload is logged with:
 - 🗑️ **Mass delete selected files** from Catbox with live progress tracking
 - 🎬 **Right-click context menu** for video URLs with embeddable link option
 
-![Upload History](https://files.catbox.moe/xyhk8m.png)
+![Upload History](https://files.catbox.moe/7zojl8.png)
 
 ---
 
