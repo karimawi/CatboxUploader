@@ -85,39 +85,39 @@ parser.add_argument("--history", action="store_true", help="Show upload history"
 args = parser.parse_args()
 
 cwd = os.getcwd()
-icon_path = f'"{cwd}\\icon.ico"'
-icons_dir = os.path.join(cwd, "icons")
+icons_dir = os.path.join(application_path, "icons")
+icon_path = f'"{icons_dir}\\icon.ico"'
 
 CONTEXT_MENU_KEYS = [
-    (r"Software\Classes\*\shell\Catbox", "Catbox", True, "icon.ico"),
-    
+    (r"Software\Classes\*\shell\Catbox", "Catbox", True, icon_path),
+
     # Ordered sub-items with individual icons
     (r"Software\Classes\*\shell\Catbox\shell\001_upload_user", "Upload as User", False, "upload_user.ico"),
-    (r"Software\Classes\*\shell\Catbox\shell\001_upload_user\command", f'"{cwd}\\catbox.exe" "%1"', False, None),
+    (r"Software\Classes\*\shell\Catbox\shell\001_upload_user\command", f'"{application_path}\\catbox.exe" "%1"', False, None),
 
     (r"Software\Classes\*\shell\Catbox\shell\002_upload_anon", "Upload anonymously", False, "upload_anon.ico"),
-    (r"Software\Classes\*\shell\Catbox\shell\002_upload_anon\command", f'"{cwd}\\catbox.exe" --anonymous "%1"', False, None),
+    (r"Software\Classes\*\shell\Catbox\shell\002_upload_anon\command", f'"{application_path}\\catbox.exe" --anonymous "%1"', False, None),
 
     (r"Software\Classes\*\shell\Catbox\shell\003_edit_userhash", "Edit userhash", False, "edit_userhash.ico"),
-    (r"Software\Classes\*\shell\Catbox\shell\003_edit_userhash\command", f'"{cwd}\\catbox.exe" --edit-userhash', False, None),
+    (r"Software\Classes\*\shell\Catbox\shell\003_edit_userhash\command", f'"{application_path}\\catbox.exe" --edit-userhash', False, None),
     
     (r"Software\Classes\*\shell\Catbox\shell\004_history", "Upload History", False, "history.ico"),
-    (r"Software\Classes\*\shell\Catbox\shell\004_history\command", f'"{cwd}\\catbox.exe" --history', False, None),
+    (r"Software\Classes\*\shell\Catbox\shell\004_history\command", f'"{application_path}\\catbox.exe" --history', False, None),
 
-    (r"Software\Classes\*\shell\Litterbox", "Litterbox", True, "icon.ico"),
+    (r"Software\Classes\*\shell\Litterbox", "Litterbox", True, icon_path),
     
     # Litterbox items without custom icons (will use default system icons)
     (r"Software\Classes\*\shell\Litterbox\shell\001_litterbox_1h", "1h", False, None),
-    (r"Software\Classes\*\shell\Litterbox\shell\001_litterbox_1h\command", f'"{cwd}\\catbox.exe" --litterbox 1h "%1"', False, None),
+    (r"Software\Classes\*\shell\Litterbox\shell\001_litterbox_1h\command", f'"{application_path}\\catbox.exe" --litterbox 1h "%1"', False, None),
 
     (r"Software\Classes\*\shell\Litterbox\shell\002_litterbox_12h", "12h", False, None),
-    (r"Software\Classes\*\shell\Litterbox\shell\002_litterbox_12h\command", f'"{cwd}\\catbox.exe" --litterbox 12h "%1"', False, None),
+    (r"Software\Classes\*\shell\Litterbox\shell\002_litterbox_12h\command", f'"{application_path}\\catbox.exe" --litterbox 12h "%1"', False, None),
 
     (r"Software\Classes\*\shell\Litterbox\shell\003_litterbox_24h", "24h", False, None),
-    (r"Software\Classes\*\shell\Litterbox\shell\003_litterbox_24h\command", f'"{cwd}\\catbox.exe" --litterbox 24h "%1"', False, None),
+    (r"Software\Classes\*\shell\Litterbox\shell\003_litterbox_24h\command", f'"{application_path}\\catbox.exe" --litterbox 24h "%1"', False, None),
 
     (r"Software\Classes\*\shell\Litterbox\shell\004_litterbox_72h", "72h", False, None),
-    (r"Software\Classes\*\shell\Litterbox\shell\004_litterbox_72h\command", f'"{cwd}\\catbox.exe" --litterbox 72h "%1"', False, None),
+    (r"Software\Classes\*\shell\Litterbox\shell\004_litterbox_72h\command", f'"{application_path}\\catbox.exe" --litterbox 72h "%1"', False, None),
 ]
 
 def check_registry_keys():
