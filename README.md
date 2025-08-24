@@ -140,7 +140,7 @@ Use `--edit-userhash` anytime to update it via a GUI prompt.
 
 ## 🎥 Demo
 
-[Demo Video](https://files.catbox.moe/1u574c.webm)
+[Demo Video](https://files.catbox.moe/1u574c.webm) ⚠ Outdated
 
 ---
 
