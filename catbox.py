@@ -5,7 +5,6 @@ import sys
 import time
 import traceback
 import winreg
-import urllib.parse
 import sqlite3
 import shutil
 from thumb import generate_thumbnail
@@ -211,10 +210,10 @@ if args.edit_userhash:
     print(f"Userhash updated: {new_userhash}")
     sys.exit(0)
 
-# Ensure userhash exists if not in anonymous mode
+# Ensure userhash exists if not in anonymous mode and not in litterbox mode
 USER_HASH = read_registry_value("userhash")
 
-if not USER_HASH and args.file and not args.anonymous:
+if not USER_HASH and args.file and not args.anonymous and not args.litterbox:
     USER_HASH = prompt_for_userhash()
 
 def get_database_path():
@@ -443,6 +442,29 @@ def is_video_file(file_path):
     video_extensions = ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.flv', '.wmv', '.m4v', '.3gp']
     return any(file_path.lower().endswith(ext) for ext in video_extensions)
 
+def generate_discord_embed_url(video_url):
+    """Generate a Discord-embeddable URL using embeds.video service.
+    
+    Args:
+        video_url: The direct URL to the video file (catbox.moe or litterbox)
+    
+    Returns:
+        The embeddable URL in format: https://embeds.video/cat/{filename}
+    """
+    try:
+        # Extract filename from URL
+        # Example: https://files.catbox.moe/abc123.mp4 -> abc123.mp4
+        # Example: https://litter.catbox.moe/abc123.mp4 -> abc123.mp4
+        filename = video_url.split('/')[-1]
+        
+        # Generate embeds.video URL
+        embed_url = f"https://embeds.video/cat/{filename}"
+        return embed_url
+        
+    except Exception as e:
+        print(f"⚠️ Failed to generate embed URL: {e}")
+        return video_url
+
 class UploadWindow(QWidget):
     def __init__(self, file_path, is_anonymous=False, litterbox_time=None):
         super().__init__()
@@ -661,8 +683,7 @@ class UploadWindow(QWidget):
         
         # Copy embeddable action (only for videos)
         if is_video_file(self.file_path):
-            encoded_url = urllib.parse.quote(url, safe='')
-            embed_url = f"https://benny.fun/api/embed?video={encoded_url}"
+            embed_url = generate_discord_embed_url(url)
             
             copy_embed_action = QAction("Copy Embeddable", self)
             copy_embed_action.triggered.connect(lambda: QApplication.clipboard().setText(embed_url))

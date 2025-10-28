@@ -5,7 +5,6 @@ import sys
 import time
 import winreg
 from datetime import datetime
-import urllib.parse
 import shutil
 
 import requests
@@ -258,6 +257,29 @@ def is_video_file(url):
     url_lower = url.lower()
     return any(url_lower.endswith(ext) for ext in video_extensions)
 
+def generate_discord_embed_url(video_url):
+    """Generate a Discord-embeddable URL using embeds.video service.
+    
+    Args:
+        video_url: The direct URL to the video file (catbox.moe or litterbox)
+    
+    Returns:
+        The embeddable URL in format: https://embeds.video/cat/{filename}
+    """
+    try:
+        # Extract filename from URL
+        # Example: https://files.catbox.moe/abc123.mp4 -> abc123.mp4
+        # Example: https://litter.catbox.moe/abc123.mp4 -> abc123.mp4
+        filename = video_url.split('/')[-1]
+        
+        # Generate embeds.video URL
+        embed_url = f"https://embeds.video/cat/{filename}"
+        return embed_url
+        
+    except Exception as e:
+        print(f"⚠️ Failed to generate embed URL: {e}")
+        return video_url
+
 def log_upload(file_path, url, mode, expiry_duration=None):
     db_path = ensure_database_schema()
     if not db_path:
@@ -484,6 +506,7 @@ def show_history_window():
 
             # Set raw URL as a property (for later retrieval)
             url_label.setProperty("raw_url", url)
+            url_label.setProperty("file_path", file_path)  # Store file path for embed generation
             
             # Set up custom context menu for URL
             url_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -825,6 +848,7 @@ def show_history_window():
     def show_url_context_menu(widget, pos):
         """Show custom context menu for URL labels."""
         raw_url = widget.property("raw_url")
+        file_path = widget.property("file_path")
         if not raw_url:
             return
         
@@ -858,8 +882,7 @@ def show_history_window():
         
         # Copy embeddable action (only for videos)
         if is_video_file(raw_url):
-            encoded_url = urllib.parse.quote(raw_url, safe='')
-            embed_url = f"https://benny.fun/api/embed?video={encoded_url}"
+            embed_url = generate_discord_embed_url(raw_url)
             
             copy_embed_action = QAction("Copy Embeddable", menu)
             copy_embed_action.triggered.connect(lambda: QApplication.clipboard().setText(embed_url))
@@ -874,13 +897,13 @@ def show_history_window():
     table.setColumnHidden(0, True)  # Initially hide checkbox column
     window.show()
 
-def open_url_in_browser(self, url):
+def open_url_in_browser(url):
     """Open URL in default browser."""
     import webbrowser
     try:
         webbrowser.open(url)
     except Exception as e:
-        QMessageBox.warning(self, "Error", f"Failed to open URL: {str(e)}")
+        QMessageBox.warning(None, "Error", f"Failed to open URL: {str(e)}")
 
 def open_file_in_default_app(file_path):
     """Open file in default application."""
