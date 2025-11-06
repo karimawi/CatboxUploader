@@ -34,6 +34,23 @@ ico_path = os.path.join(application_path, "icons", "icon.ico")
 
 REG_PATH = r"Software\CatboxUploader"
 
+# Colors for dark/light theme
+dark_theme_colors = {
+    "border": "#606060",
+    "bg": "#2D2D2D",
+    "text": "white",
+    "chunk": "#697DA0",
+    "chunk_pressed": "#50688A"
+}
+
+light_theme_colors = {
+    "border": "#c0c0c0",
+    "bg": "#ffffff",
+    "text": "#000000",
+    "chunk": "#0078d4",
+    "chunk_pressed": "#106ebe"
+}
+
 # API Endpoints
 API_CATBOX = "https://catbox.moe/user/api.php"
 API_LITTERBOX = "https://litterbox.catbox.moe/resources/internals/api.php"
@@ -464,6 +481,75 @@ def generate_discord_embed_url(video_url):
     except Exception as e:
         print(f"⚠️ Failed to generate embed URL: {e}")
         return video_url
+def create_thumbnail(path, deleted=False):
+    if not deleted:
+        try:
+            thumb = generate_thumbnail(path)
+            pixmap = QPixmap.fromImage(thumb.toqpixmap().toImage())
+            return QIcon(pixmap)
+        except:
+            pass
+    return QIcon(os.path.join(application_path, "icons", "del.ico"))
+
+def is_windows_light_mode() -> bool:
+    """ Checks if the current Windows theme is light mode
+    
+    Returns:
+        A bool based off if Windows is using light mode
+    """
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            return value == 1
+    except Exception:
+        # Default to dark mode
+        return False
+
+def get_progressbar_stylesheet(colors: dict) -> str:
+    """
+    Generates a QSS string for QProgressBar using the given color dictionary.
+    """
+    return f"""
+        QProgressBar {{
+            border: 1px solid {colors['border']};
+            border-radius: 5px;
+            background-color: {colors['bg']};
+            text-align: center;
+            font-weight: bold;
+            color: {colors['text']};
+        }}
+        QProgressBar::chunk {{
+            background-color: {colors['chunk']};
+        }}
+    """
+def get_menu_stylesheet(colors: dict) -> str:
+    """
+    Generates a QSS string for QMenu using the given color dictionary.
+    """
+    return f"""
+        QMenu {{
+            background-color: {colors['bg']};
+            color: {colors['text']};
+            border: 1px solid {colors['border']};
+            border-radius: 8px;
+            padding: 2px;
+        }}
+        QMenu::item {{
+            background-color: transparent;
+            padding: 6px 12px;
+            border-radius: 4px;
+        }}
+        QMenu::item:selected {{
+            background-color: {colors['chunk']};
+            color: {colors['text']};
+        }}
+        QMenu::item:pressed {{
+            background-color: {colors['chunk_pressed']};
+        }}
+    """
 
 class UploadWindow(QWidget):
     def __init__(self, file_path, is_anonymous=False, litterbox_time=None):
@@ -476,6 +562,9 @@ class UploadWindow(QWidget):
         self.is_anonymous = is_anonymous
         self.litterbox_time = litterbox_time
         self.start_time = time.time()  # Initialize start_time here
+        use_light = is_windows_light_mode()
+        theme_colors = light_theme_colors if use_light else dark_theme_colors
+
         
         # Dynamic Window Title
         if litterbox_time:
@@ -490,8 +579,7 @@ class UploadWindow(QWidget):
         self.setFixedSize(420, 160)
 
         # Set the background color of the window
-        self.setStyleSheet("background-color: #1E1E1E;")
-
+        self.setStyleSheet(f"background-color: {theme_colors['bg']};")
         layout = QHBoxLayout()
         self.thumbnail_label = QLabel(self)
         pixmap = pil_image_to_qpixmap(generate_thumbnail(self.file_path))
@@ -504,30 +592,18 @@ class UploadWindow(QWidget):
         self.file_label = QLabel(f"Uploading: {os.path.basename(file_path)}")
         self.file_label.setWordWrap(True)  # Enable word wrap
 
-        self.file_label.setStyleSheet("background-color: #1E1E1E; color: white;")
-
+        self.file_label.setStyleSheet(f"background-color: {theme_colors['bg']}; color: {theme_colors['text']};")
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)  # Allow the label to resize within the scroll area
         scroll_area.setWidget(self.file_label)
 
-        scroll_area.setStyleSheet("background-color: #1E1E1E; border: none;")
-
+        scroll_area.setStyleSheet(f"background-color: {theme_colors['bg']}; border: none;")
         right_layout.addWidget(scroll_area)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setFixedHeight(20)  # Set the height of the progress bar to make it thicker
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid grey;
-                border-radius: 5px;
-                text-align: center;
-                font-weight: bold;
-            }
-            QProgressBar::chunk {
-                background-color: #697DA0;
-            }
-        """)
+        self.progress_bar.setStyleSheet(get_progressbar_stylesheet(theme_colors))
 
         right_layout.addWidget(self.progress_bar)
 
@@ -535,7 +611,7 @@ class UploadWindow(QWidget):
         right_layout.addWidget(self.eta_label)
 
         self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.setStyleSheet("background-color: #3C3C3C;")
+        self.cancel_button.setStyleSheet(f"background-color: {theme_colors['chunk']}; color: {theme_colors['text']};")
         self.cancel_button.clicked.connect(self.cancel_upload)
         right_layout.addWidget(self.cancel_button)
 
@@ -552,6 +628,7 @@ class UploadWindow(QWidget):
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_eta)
         self.timer.start(500)
+        
 
     def move_to_bottom_right(self):
         screen = QApplication.primaryScreen()
@@ -649,33 +726,14 @@ class UploadWindow(QWidget):
     def show_url_context_menu(self, position):
         """Show context menu for the uploaded URL."""
         url = self.file_label.property("upload_url")
+        use_light = is_windows_light_mode()
+        theme_colors = light_theme_colors if use_light else dark_theme_colors
         if not url:
             return
             
         menu = QMenu(self)
 
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #2D2D2D;
-                color: white;
-                border: 1px solid #555;
-                border-radius: 8px;
-                padding: 2px;
-            }
-            QMenu::item {
-                background-color: transparent;
-                padding: 6px 12px;
-                border-radius: 4px;
-            }
-            QMenu::item:selected {
-                background-color: #0078d4;
-                color: white;
-            }
-            QMenu::item:pressed {
-                background-color: #106ebe;
-            }
-        """)
-        
+        menu.setStyleSheet(get_menu_stylesheet(theme_colors))
         # Copy action
         copy_action = QAction("Copy URL", self)
         copy_action.triggered.connect(lambda: QApplication.clipboard().setText(url))

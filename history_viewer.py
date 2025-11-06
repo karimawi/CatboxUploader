@@ -30,6 +30,31 @@ SHELL32_DLL = "C:\\WINDOWS\\System32\\SHELL32.dll"
 ico_path = os.path.join(application_path, "icons", "icon.ico")
 REG_PATH = r"Software\CatboxUploader"
 
+# Colors for dark/light theme
+dark_theme_colors = {
+    "bg": "#2D2D2D",
+    "alt_bg": "#262626",
+    "text": "white",
+    "header_bg": "#3C3C3C",
+    "header_text": "white",
+    "checkbox_bg": "#404040",
+    "checkbox_border": "#606060",
+    "checkbox_checked": "#0078d4",
+    "selection_bg": "#0078d4"
+}
+
+light_theme_colors = {
+    "bg": "#ffffff",
+    "alt_bg": "#f5f5f5",
+    "text": "#000000",
+    "header_bg": "#e0e0e0",
+    "header_text": "#000000",
+    "checkbox_bg": "#f0f0f0",
+    "checkbox_border": "#c0c0c0",
+    "checkbox_checked": "#0078d4",
+    "selection_bg": "#cce4ff"
+}
+
 # API Endpoints
 API_CATBOX = "https://catbox.moe/user/api.php"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -355,7 +380,63 @@ def create_thumbnail(path, deleted=False):
             pass
     return QIcon(os.path.join(application_path, "icons", "del.ico"))
 
+def is_windows_light_mode() -> bool:
+    """ Checks if the current Windows theme is light mode
+    
+    Returns:
+        A bool based off if Windows is using light mode
+    """
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            return value == 1
+    except Exception:
+        # Default to dark mode
+        return False
+
+def get_table_stylesheet(colors: dict) -> str:
+    """Generate a QSS stylesheet string for QTableWidget and QCheckBox based on color dict."""
+    return f"""
+        QTableWidget {{
+            background-color: {colors['bg']};
+            alternate-background-color: {colors['alt_bg']};
+            color: {colors['text']};
+        }}
+        QHeaderView::section {{
+            background-color: {colors['header_bg']};
+            color: {colors['header_text']};
+        }}
+        QTableWidget::item {{
+            border: none;
+        }}
+        QCheckBox {{
+            spacing: 5px;
+        }}
+        QCheckBox::indicator {{
+            width: 18px;
+            height: 18px;
+            background-color: {colors['checkbox_bg']};
+            border: 2px solid {colors['checkbox_border']};
+            border-radius: 3px;
+        }}
+        QCheckBox::indicator:checked {{
+            background-color: {colors['checkbox_checked']};
+            border: 2px solid {colors['checkbox_checked']};
+        }}
+        QTableWidget::item:selected {{
+            background-color: {colors['selection_bg']};
+        }}
+        QCheckBox::indicator:hover {{
+            border: 2px solid #106ebe;
+        }}
+    """
 def show_history_window():
+    # Dark = default; use light only if Windows explicitly uses light mode
+    use_light = is_windows_light_mode()
+    colors = light_theme_colors if use_light else dark_theme_colors
     window = QMainWindow()
     window.setWindowIcon(QIcon(ico_path))
     window.setWindowTitle("Upload History")
@@ -387,44 +468,8 @@ def show_history_window():
 
     # Enable alternating row colors
     table.setAlternatingRowColors(True)
-    table.setStyleSheet("""
-        QTableWidget {
-            background-color: #2D2D2D;
-            alternate-background-color: #262626;
-            color: white;
-        }
-        QHeaderView::section {
-            background-color: #3C3C3C;
-            color: white;
-        }
-        QTableWidget::item {
-            border: none;
-        }
-        QCheckBox {
-            spacing: 5px;
-        }
-        QCheckBox::indicator {
-            width: 18px;
-            height: 18px;
-            background-color: #404040;
-            border: 2px solid #606060;
-            border-radius: 3px;
-        }
-        QCheckBox::indicator:checked {
-            background-color: #0078d4;
-            border: 2px solid #0078d4;
-        }
-        QTableWidget::item {
-            selection-background-color: #0078d4;
-        }
-        QTableWidgetItem:checked {
-            background-color: #0078d4;
-            color: white;
-        }
-        QCheckBox::indicator:hover {
-            border: 2px solid #106ebe;
-        }
-    """)
+    table.setStyleSheet(get_table_stylesheet(colors))
+
 
     def load_table_data():
         uploads = load_uploads()
