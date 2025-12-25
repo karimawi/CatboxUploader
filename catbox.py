@@ -22,6 +22,10 @@ from PyQt6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QInputDialog,
 from requests_toolbelt.multipart.encoder import (MultipartEncoder,
                                                  MultipartEncoderMonitor)
 
+class UploadCancelledException(Exception):
+    """Exception raised when upload is cancelled."""
+    pass
+
 if getattr(sys, 'frozen', False):
     application_path = os.path.dirname(sys.executable)
     base_path = sys._MEIPASS
@@ -33,6 +37,23 @@ else:
 ico_path = os.path.join(application_path, "icons", "icon.ico")
 
 REG_PATH = r"Software\CatboxUploader"
+
+# Colors for dark/light theme
+dark_theme_colors = {
+    "border": "#606060",
+    "bg": "#2D2D2D",
+    "text": "white",
+    "chunk": "#697DA0",
+    "chunk_pressed": "#50688A"
+}
+
+light_theme_colors = {
+    "border": "#c0c0c0",
+    "bg": "#ffffff",
+    "text": "#000000",
+    "chunk": "#8E9EBB",
+    "chunk_pressed": "#7A91B1"
+}
 
 # API Endpoints
 API_CATBOX = "https://catbox.moe/user/api.php"
@@ -327,9 +348,20 @@ class UploadWorker(QThread):
         self.litterbox_time = litterbox_time
         self.total_size = 0
         self.bytes_uploaded = 0
+        self._cancelled = False
+        self._session = None
+    
+    def cancel(self):
+        """Cancel the upload by closing the session."""
+        self._cancelled = True
+        if self._session:
+            self._session.close()
         
     def run(self):
         try:
+            # Create a session for this upload
+            self._session = requests.Session()
+            
             # Get file size for progress tracking
             self.total_size = os.path.getsize(self.file_path)
             
@@ -340,12 +372,25 @@ class UploadWorker(QThread):
                 result = self.upload_to_catbox()
             
             self.upload_finished.emit(result)
+        except UploadCancelledException:
+            self.upload_finished.emit("CANCELLED")
         except Exception as e:
-            self.upload_finished.emit(f"Error: {str(e)}")
+            if self._cancelled:
+                self.upload_finished.emit("CANCELLED")
+            else:
+                self.upload_finished.emit(f"Error: {str(e)}")
+        finally:
+            if self._session:
+                self._session.close()
+                self._session = None
 
     def create_monitor_callback(self, encoder):
         """Create a callback function for monitoring upload progress."""
         def callback(monitor):
+            # Check if cancelled and raise exception to abort upload immediately
+            if self._cancelled:
+                raise UploadCancelledException("Upload cancelled by user")
+            
             self.bytes_uploaded = monitor.bytes_read
             if self.total_size > 0:
                 progress = int((self.bytes_uploaded / self.total_size) * 100)
@@ -355,6 +400,9 @@ class UploadWorker(QThread):
 
     def upload_to_catbox(self):
         """Upload file to Catbox."""
+        if self._cancelled:
+            return "CANCELLED"
+        
         url = API_CATBOX
         
         # Prepare form data
@@ -380,7 +428,7 @@ class UploadWorker(QThread):
                 'User-Agent': USER_AGENT
             }
             
-            response = requests.post(url, data=monitor, headers=headers, timeout=None)
+            response = self._session.post(url, data=monitor, headers=headers, timeout=None)
             
         if response.status_code == 200:
             result = response.text.strip()
@@ -417,7 +465,10 @@ class UploadWorker(QThread):
                 'User-Agent': USER_AGENT
             }
             
-            response = requests.post(url, data=monitor, headers=headers, timeout=None)
+            if self._cancelled:
+                return "CANCELLED"
+            
+            response = self._session.post(url, data=monitor, headers=headers, timeout=None)
             
         if response.status_code == 200:
             result = response.text.strip()
@@ -465,6 +516,106 @@ def generate_discord_embed_url(video_url):
         print(f"⚠️ Failed to generate embed URL: {e}")
         return video_url
 
+def get_themed_icon(icon_name: str) -> QIcon:
+    """Get an icon based on the current theme.
+    
+    Args:
+        icon_name: Base icon name without extension (e.g., 'reload', 'del', 'bin')
+    
+    Returns:
+        QIcon for the appropriate theme
+    """
+    use_light = is_windows_light_mode()
+    
+    # Icons that have light variants
+    light_variant_icons = ['bin', 'reload', 'edit_userhash', 'history', 'upload_anon', 'upload_user']
+    
+    if use_light and icon_name in light_variant_icons:
+        icon_file = f"{icon_name}_light.ico"
+    else:
+        icon_file = f"{icon_name}.ico"
+    
+    icon_path = os.path.join(application_path, "icons", icon_file)
+    
+    # Fallback to regular icon if light variant doesn't exist
+    if use_light and icon_name in light_variant_icons and not os.path.exists(icon_path):
+        icon_path = os.path.join(application_path, "icons", f"{icon_name}.ico")
+    
+    return QIcon(icon_path)
+
+def create_thumbnail(path, deleted=False):
+    """Create thumbnail icon, with optional theme-aware fallback icon."""
+    if not deleted:
+        try:
+            thumb = generate_thumbnail(path)
+            pixmap = QPixmap.fromImage(thumb.toqpixmap().toImage())
+            return QIcon(pixmap)
+        except:
+            pass
+    
+    # Use themed delete icon
+    return get_themed_icon('del')
+
+def is_windows_light_mode() -> bool:
+    """ Checks if the current Windows theme is light mode
+    
+    Returns:
+        A bool based off if Windows is using light mode
+    """
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            return value == 1
+    except Exception:
+        # Default to dark mode
+        return False
+
+def get_progressbar_stylesheet(colors: dict) -> str:
+    """
+    Generates a QSS string for QProgressBar using the given color dictionary.
+    """
+    return f"""
+        QProgressBar {{
+            border: 1px solid {colors['border']};
+            border-radius: 5px;
+            background-color: {colors['bg']};
+            text-align: center;
+            font-weight: bold;
+            color: {colors['text']};
+        }}
+        QProgressBar::chunk {{
+            background-color: {colors['chunk']};
+        }}
+    """
+def get_menu_stylesheet(colors: dict) -> str:
+    """
+    Generates a QSS string for QMenu using the given color dictionary.
+    """
+    return f"""
+        QMenu {{
+            background-color: {colors['bg']};
+            color: {colors['text']};
+            border: 1px solid {colors['border']};
+            border-radius: 8px;
+            padding: 2px;
+        }}
+        QMenu::item {{
+            background-color: transparent;
+            padding: 6px 12px;
+            border-radius: 4px;
+        }}
+        QMenu::item:selected {{
+            background-color: {colors['chunk']};
+            color: {colors['text']};
+        }}
+        QMenu::item:pressed {{
+            background-color: {colors['chunk_pressed']};
+        }}
+    """
+
 class UploadWindow(QWidget):
     def __init__(self, file_path, is_anonymous=False, litterbox_time=None):
         super().__init__()
@@ -476,6 +627,9 @@ class UploadWindow(QWidget):
         self.is_anonymous = is_anonymous
         self.litterbox_time = litterbox_time
         self.start_time = time.time()  # Initialize start_time here
+        use_light = is_windows_light_mode()
+        theme_colors = light_theme_colors if use_light else dark_theme_colors
+
         
         # Dynamic Window Title
         if litterbox_time:
@@ -490,8 +644,7 @@ class UploadWindow(QWidget):
         self.setFixedSize(420, 160)
 
         # Set the background color of the window
-        self.setStyleSheet("background-color: #1E1E1E;")
-
+        self.setStyleSheet(f"background-color: {theme_colors['bg']};")
         layout = QHBoxLayout()
         self.thumbnail_label = QLabel(self)
         pixmap = pil_image_to_qpixmap(generate_thumbnail(self.file_path))
@@ -504,30 +657,18 @@ class UploadWindow(QWidget):
         self.file_label = QLabel(f"Uploading: {os.path.basename(file_path)}")
         self.file_label.setWordWrap(True)  # Enable word wrap
 
-        self.file_label.setStyleSheet("background-color: #1E1E1E; color: white;")
-
+        self.file_label.setStyleSheet(f"background-color: {theme_colors['bg']}; color: {theme_colors['text']};")
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)  # Allow the label to resize within the scroll area
         scroll_area.setWidget(self.file_label)
 
-        scroll_area.setStyleSheet("background-color: #1E1E1E; border: none;")
-
+        scroll_area.setStyleSheet(f"background-color: {theme_colors['bg']}; border: none;")
         right_layout.addWidget(scroll_area)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setFixedHeight(20)  # Set the height of the progress bar to make it thicker
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid grey;
-                border-radius: 5px;
-                text-align: center;
-                font-weight: bold;
-            }
-            QProgressBar::chunk {
-                background-color: #697DA0;
-            }
-        """)
+        self.progress_bar.setStyleSheet(get_progressbar_stylesheet(theme_colors))
 
         right_layout.addWidget(self.progress_bar)
 
@@ -535,7 +676,7 @@ class UploadWindow(QWidget):
         right_layout.addWidget(self.eta_label)
 
         self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.setStyleSheet("background-color: #3C3C3C;")
+        self.cancel_button.setStyleSheet(f"background-color: {theme_colors['chunk']}; color: {theme_colors['text']};")
         self.cancel_button.clicked.connect(self.cancel_upload)
         right_layout.addWidget(self.cancel_button)
 
@@ -552,6 +693,7 @@ class UploadWindow(QWidget):
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_eta)
         self.timer.start(500)
+        
 
     def move_to_bottom_right(self):
         screen = QApplication.primaryScreen()
@@ -608,7 +750,20 @@ class UploadWindow(QWidget):
 
     @pyqtSlot(str)
     def update_ui_after_upload(self, result):
-        if result == "EMPTY_RESPONSE":
+        # Ignore if already cancelled (UI was already updated)
+        if self.cancelled:
+            return
+            
+        if result == "CANCELLED":
+            # This shouldn't normally be reached since we disconnect signals,
+            # but handle it just in case
+            self.file_label.setText("❌ Upload cancelled")
+            self.progress_bar.setFormat("Cancelled")
+            self.eta_label.setText("Cancelled")
+            self.cancel_button.setText("OK")
+            self.uploading = False
+            self.timer.stop()
+        elif result == "EMPTY_RESPONSE":
             self.handle_empty_response()
         elif "http" in result:
             self.file_label.setText(f"<p>✅ Uploaded: <a href='{result}'>{result}</a></p>")
@@ -625,6 +780,7 @@ class UploadWindow(QWidget):
             clipboard.setText(result.strip(), clipboard.Mode.Clipboard)
             
             self.cancel_button.setText("OK")
+            self.progress_bar.setFormat("%p%")
             self.progress_bar.setValue(100)
             self.eta_label.setText("Upload Complete")
 
@@ -638,6 +794,9 @@ class UploadWindow(QWidget):
             log_upload(file_path=self.file_path, url=result, mode=mode, expiry_duration=getattr(self, 'litterbox_time', None))
             self.uploading = False
             self.timer.stop()  # Stop the timer when the upload is complete
+            
+            # Force UI to update now
+            QApplication.processEvents()
         else:
             self.file_label.setText(result)
             self.cancel_button.setText("OK")
@@ -649,33 +808,14 @@ class UploadWindow(QWidget):
     def show_url_context_menu(self, position):
         """Show context menu for the uploaded URL."""
         url = self.file_label.property("upload_url")
+        use_light = is_windows_light_mode()
+        theme_colors = light_theme_colors if use_light else dark_theme_colors
         if not url:
             return
             
         menu = QMenu(self)
 
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #2D2D2D;
-                color: white;
-                border: 1px solid #555;
-                border-radius: 8px;
-                padding: 2px;
-            }
-            QMenu::item {
-                background-color: transparent;
-                padding: 6px 12px;
-                border-radius: 4px;
-            }
-            QMenu::item:selected {
-                background-color: #0078d4;
-                color: white;
-            }
-            QMenu::item:pressed {
-                background-color: #106ebe;
-            }
-        """)
-        
+        menu.setStyleSheet(get_menu_stylesheet(theme_colors))
         # Copy action
         copy_action = QAction("Copy URL", self)
         copy_action.triggered.connect(lambda: QApplication.clipboard().setText(url))
@@ -706,19 +846,45 @@ class UploadWindow(QWidget):
     def cancel_upload(self):
         """Cancel the current upload."""
         if self.uploading:
-            # Stop the upload worker
-            if hasattr(self, 'upload_worker') and self.upload_worker.isRunning():
-                self.upload_worker.terminate()
-                self.upload_worker.wait()
-            
-            # Update UI
-            self.file_label.setText("❌ Upload cancelled")
-            self.progress_bar.setValue(0)
-            self.eta_label.setText("Cancelled")
-            self.cancel_button.setText("OK")
+            # Mark as cancelled and not uploading first
             self.uploading = False
             self.cancelled = True
+            
+            # Stop timer first to prevent UI updates
             self.timer.stop()
+            
+            # Disconnect ALL signals to stop any updates from the worker
+            if hasattr(self, 'upload_worker'):
+                try:
+                    self.upload_worker.update_progress.disconnect(self.update_progress)
+                except TypeError:
+                    pass  # Already disconnected
+                try:
+                    self.upload_worker.update_bytes_uploaded.disconnect(self.update_bytes_uploaded)
+                except TypeError:
+                    pass  # Already disconnected
+                try:
+                    self.upload_worker.upload_finished.disconnect(self.update_ui_after_upload)
+                except TypeError:
+                    pass  # Already disconnected
+                
+                # Cancel the upload worker
+                self.upload_worker.cancel()
+                
+                # Forcefully terminate the thread - requests doesn't support true cancellation
+                # Give it a tiny moment to clean up, then terminate
+                if not self.upload_worker.wait(100):  # Wait 100ms max
+                    self.upload_worker.terminate()
+                    self.upload_worker.wait()  # Wait for termination to complete
+            
+            # Update UI immediately
+            self.file_label.setText("❌ Upload cancelled")
+            self.progress_bar.setFormat("Cancelled")
+            self.eta_label.setText("Cancelled")
+            self.cancel_button.setText("OK")
+            
+            # Force UI to update now
+            QApplication.processEvents()
         else:
             # If not uploading, just close the window
             self.close()

@@ -30,6 +30,37 @@ SHELL32_DLL = "C:\\WINDOWS\\System32\\SHELL32.dll"
 ico_path = os.path.join(application_path, "icons", "icon.ico")
 REG_PATH = r"Software\CatboxUploader"
 
+# Colors for dark/light theme
+dark_theme_colors = {
+    "bg": "#2D2D2D",
+    "alt_bg": "#262626",
+    "text": "white",
+    "header_bg": "#3C3C3C",
+    "header_text": "white",
+    "checkbox_bg": "#404040",
+    "checkbox_border": "#606060",
+    "checkbox_checked": "#0078d4",
+    "selection_bg": "#0078d4",
+    "menu_border": "#555",
+    "menu_selected": "#0078d4",
+    "menu_pressed": "#106ebe"
+}
+
+light_theme_colors = {
+    "bg": "#ffffff",
+    "alt_bg": "#f5f5f5",
+    "text": "#000000",
+    "header_bg": "#e0e0e0",
+    "header_text": "#000000",
+    "checkbox_bg": "#f0f0f0",
+    "checkbox_border": "#c0c0c0",
+    "checkbox_checked": "#0078d4",
+    "selection_bg": "#cce4ff",
+    "menu_border": "#c0c0c0",
+    "menu_selected": "#cce4ff",
+    "menu_pressed": "#99c9ff"
+}
+
 # API Endpoints
 API_CATBOX = "https://catbox.moe/user/api.php"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -345,7 +376,11 @@ def get_time_left(expiry, timestamp):
     except:
         return "", False
 
-def create_thumbnail(path, deleted=False):
+def create_thumbnail(path, deleted=False, use_light=None):
+    """Create thumbnail icon, with optional theme-aware fallback icon."""
+    if use_light is None:
+        use_light = is_windows_light_mode()
+    
     if not deleted:
         try:
             thumb = generate_thumbnail(path)
@@ -353,21 +388,139 @@ def create_thumbnail(path, deleted=False):
             return QIcon(pixmap)
         except:
             pass
-    return QIcon(os.path.join(application_path, "icons", "del.ico"))
+    
+    # Use themed delete icon
+    return get_themed_icon('del')
+
+def is_windows_light_mode() -> bool:
+    """ Checks if the current Windows theme is light mode
+    
+    Returns:
+        A bool based off if Windows is using light mode
+    """
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            return value == 1
+    except Exception:
+        # Default to dark mode
+        return False
+
+def get_table_stylesheet(colors: dict) -> str:
+    """Generate a QSS stylesheet string for QTableWidget and QCheckBox based on color dict."""
+    return f"""
+        QTableWidget {{
+            background-color: {colors['bg']};
+            alternate-background-color: {colors['alt_bg']};
+            color: {colors['text']};
+        }}
+        QHeaderView::section {{
+            background-color: {colors['header_bg']};
+            color: {colors['header_text']};
+        }}
+        QTableWidget::item {{
+            border: none;
+        }}
+        QCheckBox {{
+            spacing: 5px;
+        }}
+        QCheckBox::indicator {{
+            width: 18px;
+            height: 18px;
+            background-color: {colors['checkbox_bg']};
+            border: 2px solid {colors['checkbox_border']};
+            border-radius: 3px;
+        }}
+        QCheckBox::indicator:checked {{
+            background-color: {colors['checkbox_checked']};
+            border: 2px solid {colors['checkbox_checked']};
+        }}
+        QTableWidget::item:selected {{
+            background-color: {colors['selection_bg']};
+        }}
+        QCheckBox::indicator:hover {{
+            border: 2px solid #106ebe;
+        }}
+    """
+
+def get_menu_stylesheet(colors: dict) -> str:
+    """Generate a QSS stylesheet string for QMenu based on color dict."""
+    return f"""
+        QMenu {{
+            background-color: {colors['bg']};
+            color: {colors['text']};
+            border: 1px solid {colors['menu_border']};
+            border-radius: 8px;
+            padding: 2px;
+        }}
+        QMenu::item {{
+            background-color: transparent;
+            padding: 6px 12px;
+            border-radius: 4px;
+        }}
+        QMenu::item:selected {{
+            background-color: {colors['menu_selected']};
+            color: {colors['text']};
+        }}
+        QMenu::item:pressed {{
+            background-color: {colors['menu_pressed']};
+        }}
+    """
+
+def get_current_theme_colors() -> dict:
+    """Get the current theme colors based on Windows theme."""
+    return light_theme_colors if is_windows_light_mode() else dark_theme_colors
+
+def get_themed_icon(icon_name: str) -> QIcon:
+    """Get an icon based on the current theme.
+    
+    Args:
+        icon_name: Base icon name without extension (e.g., 'reload', 'del', 'bin')
+    
+    Returns:
+        QIcon for the appropriate theme
+    """
+    use_light = is_windows_light_mode()
+    
+    # Icons that have light variants
+    light_variant_icons = ['bin', 'reload', 'edit_userhash', 'history', 'upload_anon', 'upload_user']
+    
+    if use_light and icon_name in light_variant_icons:
+        icon_file = f"{icon_name}_light.ico"
+    else:
+        icon_file = f"{icon_name}.ico"
+    
+    icon_path = os.path.join(application_path, "icons", icon_file)
+    
+    # Fallback to regular icon if light variant doesn't exist
+    if use_light and icon_name in light_variant_icons and not os.path.exists(icon_path):
+        icon_path = os.path.join(application_path, "icons", f"{icon_name}.ico")
+    
+    return QIcon(icon_path)
 
 def show_history_window():
+    # Dark = default; use light only if Windows explicitly uses light mode
+    use_light = is_windows_light_mode()
+    colors = light_theme_colors if use_light else dark_theme_colors
     window = QMainWindow()
     window.setWindowIcon(QIcon(ico_path))
     window.setWindowTitle("Upload History")
     window.setMinimumSize(840, 500)
+    
+    # Store references for theme updates
+    window._theme_widgets = {}
 
     # Add reload button
     reload_button = QPushButton()
-    reload_button.setIcon(QIcon(os.path.join(application_path, "icons", "reload.ico")))
+    reload_button.setIcon(get_themed_icon('reload'))
     reload_button.setFixedSize(30, 30)
     reload_button.setToolTip("Reload")
     reload_button.setCursor(Qt.CursorShape.PointingHandCursor)
     reload_button.clicked.connect(lambda: reload_history(window))
+    window._theme_widgets['reload_button'] = reload_button
 
     # Create a layout for the reload button
     top_layout = QHBoxLayout()
@@ -387,44 +540,8 @@ def show_history_window():
 
     # Enable alternating row colors
     table.setAlternatingRowColors(True)
-    table.setStyleSheet("""
-        QTableWidget {
-            background-color: #2D2D2D;
-            alternate-background-color: #262626;
-            color: white;
-        }
-        QHeaderView::section {
-            background-color: #3C3C3C;
-            color: white;
-        }
-        QTableWidget::item {
-            border: none;
-        }
-        QCheckBox {
-            spacing: 5px;
-        }
-        QCheckBox::indicator {
-            width: 18px;
-            height: 18px;
-            background-color: #404040;
-            border: 2px solid #606060;
-            border-radius: 3px;
-        }
-        QCheckBox::indicator:checked {
-            background-color: #0078d4;
-            border: 2px solid #0078d4;
-        }
-        QTableWidget::item {
-            selection-background-color: #0078d4;
-        }
-        QTableWidgetItem:checked {
-            background-color: #0078d4;
-            color: white;
-        }
-        QCheckBox::indicator:hover {
-            border: 2px solid #106ebe;
-        }
-    """)
+    table.setStyleSheet(get_table_stylesheet(colors))
+
 
     def load_table_data():
         uploads = load_uploads()
@@ -450,8 +567,11 @@ def show_history_window():
             checkbox_layout.setContentsMargins(0, 0, 0, 0)
             table.setCellWidget(row_index, 0, checkbox_container)
 
+            # Store checkbox reference for theme updates
+            checkbox_widget._use_light_theme = use_light
+
             # 1. Thumbnail
-            icon = create_thumbnail(file_path, deleted=not file_exists)
+            icon = create_thumbnail(file_path, deleted=not file_exists, use_light=use_light)
             thumb_label = QLabel()
             thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             thumb_pixmap = icon.pixmap(48, 48)
@@ -535,7 +655,7 @@ def show_history_window():
             # 7. Delete Button for "User" uploads only
             if mode == "User":
                 delete_button = QPushButton()
-                delete_button.setIcon(QIcon(os.path.join(application_path, "icons", "bin.ico")))
+                delete_button.setIcon(get_themed_icon('bin'))
                 delete_button.setFixedHeight(30)
                 delete_button.setToolTip("Delete file from Catbox")
                 delete_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -624,7 +744,7 @@ def show_history_window():
     select_button = QPushButton("Select")
     select_all_button = QPushButton("Select All")
     mass_delete_button = QPushButton()
-    mass_delete_button.setIcon(QIcon(os.path.join(application_path, "icons", "bin.ico")))
+    mass_delete_button.setIcon(get_themed_icon('bin'))
     mass_delete_button.setToolTip("Mass Delete Selected Files from Catbox")
     remove_selection_button = QPushButton("Remove Selection")
 
@@ -661,7 +781,7 @@ def show_history_window():
         if select_button.text() == "Select":
             select_button.setText("Cancel")
             select_all_button.setVisible(True)
-            mass_delete_button.setVisible(True)
+            mass_delete_button.setVisible(False)  # Hidden until a User upload is selected
             remove_selection_button.setVisible(True)
             remove_selection_button.setEnabled(True)
             table.setColumnHidden(0, False)  # Show checkbox column
@@ -677,16 +797,35 @@ def show_history_window():
             for row in range(table.rowCount()):
                 set_checkbox_checked(row, False)
                 set_checkbox_enabled(row, False)
+    
+    def update_mass_delete_visibility():
+        """Show mass delete button only if at least one User upload is selected."""
+        if select_button.text() != "Cancel":  # Not in select mode
+            return
+        
+        uploads = load_uploads()
+        has_user_upload_selected = False
+        
+        for row in range(table.rowCount()):
+            if is_checkbox_checked(row) and row < len(uploads):
+                file_path, url, mode, timestamp, expiry, is_deleted = uploads[row]
+                if mode == "User" and not is_deleted:
+                    has_user_upload_selected = True
+                    break
+        
+        mass_delete_button.setVisible(has_user_upload_selected)
 
     def select_all():
         for row in range(table.rowCount()):
             set_checkbox_checked(row, True)
         remove_selection_button.setEnabled(True)
+        update_mass_delete_visibility()
 
     def clear_selection():
         for row in range(table.rowCount()):
             set_checkbox_checked(row, False)
         remove_selection_button.setEnabled(False)
+        update_mass_delete_visibility()
 
     def mass_delete_selection():
         # Get selected User uploads only (skip expired ones)
@@ -773,6 +912,12 @@ def show_history_window():
     select_all_button.clicked.connect(select_all)
     mass_delete_button.clicked.connect(mass_delete_selection)
     remove_selection_button.clicked.connect(remove_selection)
+    
+    # Connect all checkbox signals to update mass delete button visibility
+    for row in range(table.rowCount()):
+        checkbox = get_checkbox_widget(row)
+        if checkbox:
+            checkbox.stateChanged.connect(update_mass_delete_visibility)
 
     button_layout.addWidget(select_button)
     button_layout.addWidget(select_all_button)
@@ -819,27 +964,7 @@ def show_history_window():
 
         # Default context menu for other columns
         menu = QMenu()
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #2D2D2D;
-                color: white;
-                border: 1px solid #555;
-                border-radius: 8px;
-                padding: 2px;
-            }
-            QMenu::item {
-                background-color: transparent;
-                padding: 6px 12px;
-                border-radius: 4px;
-            }
-            QMenu::item:selected {
-                background-color: #0078d4;
-                color: white;
-            }
-            QMenu::item:pressed {
-                background-color: #106ebe;
-            }
-        """)
+        menu.setStyleSheet(get_menu_stylesheet(get_current_theme_colors()))
         copy_action = QAction("Copy")
         copy_action.triggered.connect(lambda: QApplication.clipboard().setText(text))
         menu.addAction(copy_action)
@@ -853,27 +978,7 @@ def show_history_window():
             return
         
         menu = QMenu()
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #2D2D2D;
-                color: white;
-                border: 1px solid #555;
-                border-radius: 8px;
-                padding: 4px;
-            }
-            QMenu::item {
-                background-color: transparent;
-                padding: 8px 16px;
-                border-radius: 4px;
-            }
-            QMenu::item:selected {
-                background-color: #0078d4;
-                color: white;
-            }
-            QMenu::item:pressed {
-                background-color: #106ebe;
-            }
-        """)
+        menu.setStyleSheet(get_menu_stylesheet(get_current_theme_colors()))
         
         # Copy action
         copy_action = QAction("Copy", menu)
@@ -923,27 +1028,7 @@ def show_file_in_explorer(file_path):
 def show_file_context_menu(widget, pos, file_path):
     """Show custom context menu for file path labels."""
     menu = QMenu()
-    menu.setStyleSheet("""
-        QMenu {
-            background-color: #2D2D2D;
-            color: white;
-            border: 1px solid #555;
-            border-radius: 8px;
-            padding: 2px;
-        }
-        QMenu::item {
-            background-color: transparent;
-            padding: 6px 12px;
-            border-radius: 4px;
-        }
-        QMenu::item:selected {
-            background-color: #0078d4;
-            color: white;
-        }
-        QMenu::item:pressed {
-            background-color: #106ebe;
-        }
-    """)
+    menu.setStyleSheet(get_menu_stylesheet(get_current_theme_colors()))
     
     # Copy file path action
     copy_action = QAction("Copy Path", menu)
@@ -965,10 +1050,12 @@ def show_file_context_menu(widget, pos, file_path):
 
 class CustomCheckBox(QWidget):
     """Custom checkbox widget with visible checkmark."""
+    stateChanged = pyqtSignal()  # Signal emitted when checkbox state changes
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.checked = False
+        self._use_light_theme = is_windows_light_mode()
         self.setFixedSize(20, 20)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
@@ -986,6 +1073,7 @@ class CustomCheckBox(QWidget):
     def mousePressEvent(self, event):
         if self.isEnabled() and event.button() == Qt.MouseButton.LeftButton:
             self.setChecked(not self.checked)
+            self.stateChanged.emit()  # Emit signal when state changes
             
     def paintEvent(self, event):
         from PyQt6.QtGui import QPainter, QPen, QBrush, QFont
@@ -993,19 +1081,22 @@ class CustomCheckBox(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
+        # Get theme colors
+        colors = light_theme_colors if self._use_light_theme else dark_theme_colors
+        
         # Draw the checkbox background
         rect = self.rect().adjusted(1, 1, -1, -1)
         
         if self.checked:
             # Blue background when checked
-            brush = QBrush(QColor(0, 120, 212))  # #0078d4
+            brush = QBrush(QColor(colors['checkbox_checked']))
             painter.setBrush(brush)
-            painter.setPen(QPen(QColor(0, 120, 212), 2))
+            painter.setPen(QPen(QColor(colors['checkbox_checked']), 2))
         else:
-            # Gray background when unchecked
-            brush = QBrush(QColor(64, 64, 64))  # #404040
+            # Theme-appropriate background when unchecked
+            brush = QBrush(QColor(colors['checkbox_bg']))
             painter.setBrush(brush)
-            painter.setPen(QPen(QColor(96, 96, 96), 2))  # #606060
+            painter.setPen(QPen(QColor(colors['checkbox_border']), 2))
             
         painter.drawRoundedRect(rect, 3, 3)
         
