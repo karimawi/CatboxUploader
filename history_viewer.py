@@ -1117,7 +1117,18 @@ def reload_history(window):
     window.close()
     show_history_window()
 
+def refresh_context_menu_icons():
+    """Silently refresh context menu icons to match current theme."""
+    try:
+        from catbox import check_registry_keys, add_registry_keys, ensure_icons_directory
+        ensure_icons_directory()
+        if not check_registry_keys():
+            add_registry_keys()
+    except Exception:
+        pass  # Silently ignore errors when refreshing icons
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    refresh_context_menu_icons()  # Refresh icons on launch
     show_history_window()
     sys.exit(app.exec())

@@ -78,6 +78,48 @@ def write_registry_value(name, value):
         app.setWindowIcon(QIcon(ico_path))
         QMessageBox.critical(None, "Registry Error", f"Failed to save to registry:\n{str(e)}")
 
+def is_windows_light_mode() -> bool:
+    """Checks if the current Windows theme is light mode.
+    
+    Returns:
+        A bool based off if Windows is using light mode
+    """
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            return value == 1
+    except Exception:
+        # Default to dark mode
+        return False
+
+def get_themed_icon_filename(icon_name: str) -> str:
+    """Get the themed icon filename based on current Windows theme.
+    
+    Args:
+        icon_name: Base icon filename (e.g., 'upload_user.ico')
+    
+    Returns:
+        The appropriate icon filename for the current theme
+    """
+    # Icons that have light variants
+    light_variant_icons = ['upload_user', 'upload_anon', 'edit_userhash', 'history']
+    
+    use_light = is_windows_light_mode()
+    
+    # Extract base name without extension
+    base_name = icon_name.replace('.ico', '')
+    
+    if use_light and base_name in light_variant_icons:
+        light_icon = f"{base_name}_light.ico"
+        # Check if light variant exists
+        if os.path.exists(os.path.join(icons_dir, light_icon)):
+            return light_icon
+    
+    return icon_name
+
 def prompt_for_userhash():
     """Show a Qt input dialog to enter and save userhash."""
     app = QApplication(sys.argv)
@@ -148,6 +190,10 @@ def check_registry_keys():
         key_path, value, is_parent = entry[:3]
         icon_file = entry[3] if len(entry) > 3 else None
         
+        # Get themed icon filename if icon is specified
+        if icon_file and not icon_file.startswith('"'):
+            icon_file = get_themed_icon_filename(icon_file)
+        
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ) as key:
                 if "command" in key_path:
@@ -184,6 +230,10 @@ def add_registry_keys():
             key_path, value, is_parent = entry[:3]
             icon_file = entry[3] if len(entry) > 3 else None
             
+            # Get themed icon filename if icon is specified (skip already-quoted full paths)
+            if icon_file and not icon_file.startswith('"'):
+                icon_file = get_themed_icon_filename(icon_file)
+            
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
                 if "command" in key_path:
                     # For command keys, set the value to the current executable path
@@ -194,9 +244,16 @@ def add_registry_keys():
                     
                     # Set icon if specified
                     if icon_file:
-                        icon_path_full = f'"{os.path.join(icons_dir, icon_file)}"'
+                        # Handle both full paths (quoted) and relative icon filenames
+                        if icon_file.startswith('"'):
+                            icon_path_full = icon_file
+                            icon_exists = os.path.exists(icon_file.strip('"'))
+                        else:
+                            icon_path_full = f'"{os.path.join(icons_dir, icon_file)}"'
+                            icon_exists = os.path.exists(os.path.join(icons_dir, icon_file))
+                        
                         # Verify icon file exists before setting
-                        if os.path.exists(os.path.join(icons_dir, icon_file)):
+                        if icon_exists:
                             winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, icon_path_full)
                         else:
                             # Fallback to main icon if specific icon doesn't exist
@@ -555,23 +612,6 @@ def create_thumbnail(path, deleted=False):
     
     # Use themed delete icon
     return get_themed_icon('del')
-
-def is_windows_light_mode() -> bool:
-    """ Checks if the current Windows theme is light mode
-    
-    Returns:
-        A bool based off if Windows is using light mode
-    """
-    try:
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
-        ) as key:
-            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
-            return value == 1
-    except Exception:
-        # Default to dark mode
-        return False
 
 def get_progressbar_stylesheet(colors: dict) -> str:
     """
@@ -1086,6 +1126,10 @@ if __name__ == "__main__":
 
     try:
         ensure_icons_directory()  # Ensure icons directory and files are set up
+        
+        # Always silently refresh icons to match current theme
+        if not check_registry_keys():
+            add_registry_keys()
 
         if args.history:
             from history_viewer import show_history_window
