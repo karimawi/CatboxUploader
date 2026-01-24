@@ -7,6 +7,8 @@ import traceback
 import winreg
 import sqlite3
 import shutil
+import json
+import lzstring
 from thumb import generate_thumbnail
 from history_viewer import log_upload
 import pythoncom
@@ -547,27 +549,34 @@ def pil_image_to_qpixmap(pil_image: Image.Image) -> QPixmap:
 
 def is_video_file(file_path):
     """Check if the file is a video file based on extension."""
-    video_extensions = ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.flv', '.wmv', '.m4v', '.3gp']
+    video_extensions = ['.mp4', '.mov', '.webm']
     return any(file_path.lower().endswith(ext) for ext in video_extensions)
 
-def generate_discord_embed_url(video_url):
-    """Generate a Discord-embeddable URL using embeds.video service.
-    
-    Args:
-        video_url: The direct URL to the video file (catbox.moe or litterbox)
-    
-    Returns:
-        The embeddable URL in format: https://embeds.video/cat/{filename}
-    """
+def generate_discord_embed_url(video_url, original_filename=None):
+    """Generate a Discord-embeddable URL using video.karimawi.me service with LZString."""
     try:
-        # Extract filename from URL
-        # Example: https://files.catbox.moe/abc123.mp4 -> abc123.mp4
-        # Example: https://litter.catbox.moe/abc123.mp4 -> abc123.mp4
+        # Extract filename from URL (files.catbox.moe/abcdef.mp4 -> abcdef.mp4)
         filename = video_url.split('/')[-1]
         
-        # Generate embeds.video URL
-        embed_url = f"https://embeds.video/cat/{filename}"
-        return embed_url
+        # Use original filename for title if provided, otherwise default to URL filename without extension
+        if original_filename:
+            title = os.path.splitext(original_filename)[0]
+        else:
+            title = os.path.splitext(filename)[0]
+        
+        # Check for Litterbox
+        is_litterbox = "litter.catbox.moe" in video_url
+        
+        # Format for embedder: ["filename.ext", "Title"] or ["*filename.ext", "Title"] for litterbox
+        stored_filename = f"*{filename}" if is_litterbox else filename
+        
+        payload = [stored_filename, title]
+        json_str = json.dumps(payload)
+        
+        lz = lzstring.LZString()
+        encoded = lz.compressToEncodedURIComponent(json_str)
+        
+        return f"https://video.karimawi.me/{encoded}"
         
     except Exception as e:
         print(f"⚠️ Failed to generate embed URL: {e}")
@@ -863,7 +872,8 @@ class UploadWindow(QWidget):
         
         # Copy embeddable action (only for videos)
         if is_video_file(self.file_path):
-            embed_url = generate_discord_embed_url(url)
+            # Pass basename of source file as title
+            embed_url = generate_discord_embed_url(url, os.path.basename(self.file_path))
             
             copy_embed_action = QAction("Copy Embeddable", self)
             copy_embed_action.triggered.connect(lambda: QApplication.clipboard().setText(embed_url))

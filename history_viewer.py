@@ -1,11 +1,14 @@
 import ctypes
 import os
 import sqlite3
+import re
 import sys
 import time
 import winreg
 from datetime import datetime
 import shutil
+import json
+import lzstring
 
 import requests
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
@@ -14,7 +17,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout,
                              QHeaderView, QLabel, QMainWindow, QMenu,
                              QMessageBox, QPushButton, QTableWidget,
                              QTableWidgetItem, QVBoxLayout, QWidget, QToolTip,
-                             QDialog, QProgressBar, QTextEdit, QCheckBox)
+                             QDialog, QProgressBar, QTextEdit, QCheckBox, QLineEdit)
 
 from thumb import generate_thumbnail
 
@@ -284,28 +287,35 @@ class MassDeleteDialog(QDialog):
 
 def is_video_file(url):
     """Check if the URL points to a video file based on extension."""
-    video_extensions = ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.flv', '.wmv', '.m4v', '.3gp']
+    video_extensions = ['.mp4', '.mov', '.webm']
     url_lower = url.lower()
     return any(url_lower.endswith(ext) for ext in video_extensions)
 
-def generate_discord_embed_url(video_url):
-    """Generate a Discord-embeddable URL using embeds.video service.
-    
-    Args:
-        video_url: The direct URL to the video file (catbox.moe or litterbox)
-    
-    Returns:
-        The embeddable URL in format: https://embeds.video/cat/{filename}
-    """
+def generate_discord_embed_url(video_url, original_filename=None):
+    """Generate a Discord-embeddable URL using video.karimawi.me service with LZString."""
     try:
-        # Extract filename from URL
-        # Example: https://files.catbox.moe/abc123.mp4 -> abc123.mp4
-        # Example: https://litter.catbox.moe/abc123.mp4 -> abc123.mp4
+        # Extract filename from URL (files.catbox.moe/abcdef.mp4 -> abcdef.mp4)
         filename = video_url.split('/')[-1]
         
-        # Generate embeds.video URL
-        embed_url = f"https://embeds.video/cat/{filename}"
-        return embed_url
+        # Use original filename for title if provided, otherwise default to URL filename without extension
+        if original_filename:
+            title = os.path.splitext(original_filename)[0]
+        else:
+            title = os.path.splitext(filename)[0]
+        
+        # Check for Litterbox
+        is_litterbox = "litter.catbox.moe" in video_url
+        
+        # Format for embedder: ["filename.ext", "Title"] or ["*filename.ext", "Title"] for litterbox
+        stored_filename = f"*{filename}" if is_litterbox else filename
+        
+        payload = [stored_filename, title]
+        json_str = json.dumps(payload)
+        
+        lz = lzstring.LZString()
+        encoded = lz.compressToEncodedURIComponent(json_str)
+        
+        return f"https://video.karimawi.me/{encoded}"
         
     except Exception as e:
         print(f"⚠️ Failed to generate embed URL: {e}")
@@ -409,6 +419,22 @@ def is_windows_light_mode() -> bool:
         # Default to dark mode
         return False
 
+
+def get_search_bar_stylesheet(colors: dict) -> str:
+    """Generate a QSS stylesheet string for QLineEdit search bar based on color dict."""
+    return f"""
+        QLineEdit {{
+            background-color: {colors['bg']};
+            color: {colors['text']};
+            border: 1px solid {colors['menu_border']};
+            border-radius: 5px;
+            padding: 5px;
+        }}
+        QLineEdit:focus {{
+            border: 1px solid #0078d4;
+        }}
+    """
+
 def get_table_stylesheet(colors: dict) -> str:
     """Generate a QSS stylesheet string for QTableWidget and QCheckBox based on color dict."""
     return f"""
@@ -508,7 +534,7 @@ def show_history_window():
     window = QMainWindow()
     window.setWindowIcon(QIcon(ico_path))
     window.setWindowTitle("Upload History")
-    window.setMinimumSize(840, 500)
+    window.setMinimumSize(1000, 500)
     
     # Store references for theme updates
     window._theme_widgets = {}
@@ -522,8 +548,16 @@ def show_history_window():
     reload_button.clicked.connect(lambda: reload_history(window))
     window._theme_widgets['reload_button'] = reload_button
 
-    # Create a layout for the reload button
+    # Search Bar
+    search_bar = QLineEdit()
+    search_bar.setPlaceholderText("Search in File Path or URL...")
+    search_bar.setFixedWidth(250)
+    search_bar.setClearButtonEnabled(True)
+    search_bar.setStyleSheet(get_search_bar_stylesheet(colors))
+
+    # Create a layout for the top bar
     top_layout = QHBoxLayout()
+    top_layout.addWidget(search_bar)
     top_layout.addStretch()
     top_layout.addWidget(reload_button)
 
@@ -531,8 +565,8 @@ def show_history_window():
     QApplication.setEffectEnabled(Qt.UIEffect.UI_General, False)
     table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
     table.customContextMenuRequested.connect(lambda pos: show_context_menu(table, pos))
-    table.setColumnCount(8)  # Add an extra column for checkboxes
-    table.setHorizontalHeaderLabels(["", "Icon", "File Path", "Mode", "Uploaded", "URL", "Time Left", ""])
+    table.setColumnCount(9)  # Add an extra column for checkboxes
+    table.setHorizontalHeaderLabels(["", "Icon", "File Name", "File Path", "Mode", "Uploaded", "URL", "Time Left", ""])
     table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
     table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     table.verticalHeader().setVisible(False)
@@ -542,6 +576,71 @@ def show_history_window():
     table.setAlternatingRowColors(True)
     table.setStyleSheet(get_table_stylesheet(colors))
 
+    def filter_table(text):
+        text = text.strip()
+        has_text = bool(text)
+        
+        for row in range(table.rowCount()):
+            name_widget = table.cellWidget(row, 2)
+            file_widget = table.cellWidget(row, 3)
+            url_widget = table.cellWidget(row, 6)
+            
+            if not isinstance(name_widget, QLabel) or not isinstance(file_widget, QLabel) or not isinstance(url_widget, QLabel):
+                continue
+            
+            raw_name = name_widget.property("raw_name") or ""
+            
+            raw_path = file_widget.property("raw_path") or ""
+            file_exists = file_widget.property("file_exists")
+            
+            raw_url = url_widget.property("raw_url") or ""
+            is_expired = url_widget.property("is_expired")
+            
+            match = False
+            if not has_text:
+                match = True
+            elif text.lower() in raw_name.lower():
+                match = True
+            elif text.lower() in raw_path.lower():
+                match = True
+            elif text.lower() in raw_url.lower():
+                match = True
+            
+            table.setRowHidden(row, not match)
+            
+            if not match and has_text:
+                continue
+                
+            # Helper to highlight text
+            def get_highlighted_html(content, term, is_strikethrough=False, is_link=False):
+                if not content: return ""
+                
+                display_text = content
+                if term:
+                    # Escape text for safe regex use
+                    pattern = re.compile(re.escape(term), re.IGNORECASE)
+                    display_text = pattern.sub(lambda m: f"<span style='background-color: yellow; color: black;'>{m.group(0)}</span>", content)
+                
+                if is_strikethrough:
+                    return f"<s><font color='red'>{display_text}</font></s>"
+                elif is_link:
+                    return f"<a href='{content}'>{display_text}</a>"
+                else:
+                    return display_text
+
+            # Update Name Label
+            name_html = get_highlighted_html(raw_name, text if has_text else "", is_strikethrough=not file_exists)
+            name_widget.setText(name_html)
+            
+            # Update File Label
+            file_html = get_highlighted_html(raw_path, text if has_text else "", is_strikethrough=not file_exists)
+            file_widget.setText(file_html)
+            
+            # Update URL Label
+            url_html = get_highlighted_html(raw_url, text if has_text else "", is_strikethrough=is_expired, is_link=not is_expired)
+            url_widget.setText(url_html)
+
+    search_bar.textChanged.connect(filter_table)
 
     def load_table_data():
         uploads = load_uploads()
@@ -578,12 +677,28 @@ def show_history_window():
             thumb_label.setPixmap(thumb_pixmap)
             table.setCellWidget(row_index, 1, thumb_label)
 
-            # 2. File Path
+            # 2. File Name
+            file_name = os.path.basename(file_path)
+            display_name = file_name
+            if not file_exists:
+                display_name = f"<s><font color='red'>{file_name}</font></s>"
+
+            name_label = QLabel()
+            name_label.setProperty("raw_name", file_name)
+            name_label.setTextFormat(Qt.TextFormat.RichText)
+            name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            name_label.setText(display_name)
+            name_label.setToolTip(file_name)
+            table.setCellWidget(row_index, 2, name_label)
+
+            # 3. File Path
             display_path = file_path
             if not file_exists:
                 display_path = f"<s><font color='red'>{file_path}</font></s>"
             
             file_label = QLabel()
+            file_label.setProperty("raw_path", file_path)
+            file_label.setProperty("file_exists", file_exists)
             file_label.setTextFormat(Qt.TextFormat.RichText)
             file_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             file_label.setText(display_path)
@@ -598,9 +713,9 @@ def show_history_window():
             file_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             file_label.customContextMenuRequested.connect(lambda pos, widget=file_label, path=file_path: show_file_context_menu(widget, pos, path))
             
-            table.setCellWidget(row_index, 2, file_label)
+            table.setCellWidget(row_index, 3, file_label)
 
-            # 3. Mode
+            # 4. Mode
             mode_item = QTableWidgetItem(mode_label)
             mode_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             if is_expired:
@@ -608,15 +723,15 @@ def show_history_window():
                 font.setStrikeOut(True)
                 mode_item.setForeground(QColor("red"))
                 mode_item.setFont(font)
-            table.setItem(row_index, 3, mode_item)
+            table.setItem(row_index, 4, mode_item)
 
-            # 4. Uploaded
+            # 5. Uploaded
             time_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
             time_item = QTableWidgetItem(time_str)
             time_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            table.setItem(row_index, 4, time_item)
+            table.setItem(row_index, 5, time_item)
 
-            # 5. URL
+            # 6. URL
             url_label = QLabel()
             url_label.setTextFormat(Qt.TextFormat.RichText)
             url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
@@ -627,6 +742,7 @@ def show_history_window():
             # Set raw URL as a property (for later retrieval)
             url_label.setProperty("raw_url", url)
             url_label.setProperty("file_path", file_path)  # Store file path for embed generation
+            url_label.setProperty("is_expired", is_expired)
             
             # Set up custom context menu for URL
             url_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -639,9 +755,9 @@ def show_history_window():
                 url_text = f"<a href='{url}'>{url}</a>"
 
             url_label.setText(url_text)
-            table.setCellWidget(row_index, 5, url_label)
+            table.setCellWidget(row_index, 6, url_label)
 
-            # 6. Time Left
+            # 7. Time Left
             time_left_str, expired = get_time_left(expiry, timestamp) if "Litterbox" in mode else ("", False)
             time_left_item = QTableWidgetItem(time_left_str)
             time_left_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -650,9 +766,9 @@ def show_history_window():
                 font.setStrikeOut(True)
                 time_left_item.setForeground(QColor("red"))
                 time_left_item.setFont(font)
-            table.setItem(row_index, 6, time_left_item)
+            table.setItem(row_index, 7, time_left_item)
 
-            # 7. Delete Button for "User" uploads only
+            # 8. Delete Button for "User" uploads only
             if mode == "User":
                 delete_button = QPushButton()
                 delete_button.setIcon(get_themed_icon('bin'))
@@ -704,22 +820,22 @@ def show_history_window():
                 button_layout.addWidget(delete_button)
                 button_layout.setContentsMargins(0, 0, 0, 0)
                 button_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                table.setCellWidget(row_index, 7, button_container)
+                table.setCellWidget(row_index, 8, button_container)
 
             else:
-                table.setCellWidget(row_index, 7, QWidget())  # Empty cell
+                table.setCellWidget(row_index, 8, QWidget())  # Empty cell
 
         table.resizeColumnsToContents()
         table.horizontalHeader().setStretchLastSection(False)
 
         header = table.horizontalHeader()
         # Stretch most columns
-        for col in range(7):
+        for col in range(8):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
 
         # Set fixed width for the delete button column
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
-        table.setColumnWidth(7, 40)
+        header.setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)
+        table.setColumnWidth(8, 40)
 
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         table.setColumnWidth(0, 30)
@@ -727,11 +843,11 @@ def show_history_window():
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         table.setColumnWidth(1, 60)
 
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
-        table.setColumnWidth(6, 70)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
+        table.setColumnWidth(7, 70)
 
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        table.setColumnWidth(3, 85)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        table.setColumnWidth(4, 85)
 
     load_table_data()
 
@@ -953,13 +1069,29 @@ def show_history_window():
                 if raw_url:
                     show_url_context_menu(widget, pos)
                     return
-            # Special handling for File Path column (column 2)
-            elif column == 2:
+            # Special handling for File Path column (column 3)
+            elif column == 3:
                 # This will be handled by the file_label's custom context menu
                 return
+            
+            # Special handling for File Name column (column 2)
+            elif column == 2:
+                # Default context menu for Name column
+                menu = QMenu()
+                menu.setStyleSheet(get_menu_stylesheet(get_current_theme_colors()))
+                copy_action = QAction("Copy", menu)
+                copy_action.triggered.connect(lambda: QApplication.clipboard().setText(text))
+                menu.addAction(copy_action)
+                menu.exec(QCursor.pos())
+                return
+            
         elif item:
             text = item.text()
         else:
+            return
+
+        # Disable context menu for Thumbnail/Icon column (column 1)
+        if column == 1:
             return
 
         # Default context menu for other columns
@@ -987,7 +1119,9 @@ def show_history_window():
         
         # Copy embeddable action (only for videos)
         if is_video_file(raw_url):
-            embed_url = generate_discord_embed_url(raw_url)
+            # Extract title from file_path if available
+            original_filename = os.path.basename(file_path) if file_path else None
+            embed_url = generate_discord_embed_url(raw_url, original_filename)
             
             copy_embed_action = QAction("Copy Embeddable", menu)
             copy_embed_action.triggered.connect(lambda: QApplication.clipboard().setText(embed_url))
