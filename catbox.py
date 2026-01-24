@@ -14,7 +14,6 @@ from history_viewer import log_upload
 import pythoncom
 import requests
 import PIL.Image as Image
-from moviepy.video.io.VideoFileClip import VideoFileClip
 from PyQt6.QtCore import (Qt, QThread, QTimer, pyqtSignal,
                           pyqtSlot)
 from PyQt6.QtGui import QIcon, QImage, QPixmap, QAction, QCursor
