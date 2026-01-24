@@ -32,7 +32,7 @@ A Windows-based context menu tool to upload files to [Catbox.moe](https://catbox
 ## 🚀 Features
 
 - ✅ **Right-click Context Menu Integration** for quick uploads and automatically copy the URL to clipboard
-- 🧾 **Upload History Viewer** storing all the uploads in a local SQL DB with thumbnails and status, marking deleted files and expired links in red-strikedthrough text
+- 🧾 **Upload History Viewer** storing all the uploads in a local SQL DB with thumbnails and status, marking deleted files and expired links in red-strikedthrough text, now also supports search in v1.1.7
 - 🗑  **Delete files from Catbox user data right from the history window**
 - 👤 **Userhash Authentication** (optional)  
 - 🕵️‍♂️ **Anonymous Upload Mode**  
