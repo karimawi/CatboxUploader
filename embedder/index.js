@@ -57,32 +57,46 @@ app.get('/*', (req, res) => {
        throw new Error("Invalid payload structure");
     }
 
-    const filename = decoded[0];
+    let filename = decoded[0];
     const title = decoded[1] || "";
+
+    // Check for Litterbox prefix
+    let isLitterbox = false;
+    if (filename.startsWith('*')) {
+        isLitterbox = true;
+        filename = filename.substring(1);
+    }
     
     // Simple extension check
     const parts = filename.split('.');
     if (parts.length < 2) throw new Error("Filename has no extension");
     const ext = parts.pop().toLowerCase();
     
-    const fileUrl = `https://files.catbox.moe/${filename}`;
+    const domain = isLitterbox ? 'litter.catbox.moe' : 'files.catbox.moe';
+    const fileUrl = `https://${domain}/${filename}`;
     const pageUrl = `https://${req.headers.host}${req.path}`; 
+    
+    // Direct redirect for MP3 as requested (to force native Discord audio player)
+    if (ext === 'mp3') {
+        res.redirect(fileUrl);
+        return;
+    }
 
     const isVideo = ['mp4', 'webm', 'mov', 'mkv'].includes(ext);
-    const isAudio = ['mp3', 'wav', 'ogg', 'flac', 'm4a'].includes(ext);
+    const isAudio = ['wav', 'ogg', 'flac', 'm4a'].includes(ext); // Removed mp3 from here
 
     let mimeType = 'video/mp4';
     if (ext === 'webm') mimeType = 'video/webm';
     if (ext === 'mov') mimeType = 'video/quicktime';
-    if (ext === 'mp3') mimeType = 'audio/mpeg';
     if (ext === 'wav') mimeType = 'audio/wav';
     if (ext === 'ogg') mimeType = 'audio/ogg';
 
     // Construct HTML
     
     let metaTags = `
-        <meta name="theme-color" content="#00FFAA" />
-        <meta property="og:title" content="${title || 'Video'}" />
+        <meta name="theme-color" content="#687C9B" />
+        <meta property="og:site_name" content="Made by karimawi.me" />
+        <meta property="og:title" content="${title.replace(/"/g, '&quot;') || 'Video'}" />
         <meta property="og:type" content="${isAudio ? 'music.song' : 'video.other'}" />
         <meta property="og:url" content="${pageUrl}" />
     `;
