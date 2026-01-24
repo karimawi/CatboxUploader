@@ -186,3 +186,4 @@ gen_test_link.js
 package-lock.json
 node_modules/
 .vercel
+releasenotes.md
