@@ -75,58 +75,37 @@ app.get('/*', (req, res) => {
     const domain = isLitterbox ? 'litter.catbox.moe' : 'files.catbox.moe';
     const fileUrl = `https://${domain}/${filename}`;
     const pageUrl = `https://${req.headers.host}${req.path}`; 
-    
-    // Direct redirect for MP3 as requested (to force native Discord audio player)
-    if (ext === 'mp3') {
-        res.redirect(fileUrl);
-        return;
-    }
 
     const isVideo = ['mp4', 'webm', 'mov', 'mkv'].includes(ext);
-    const isAudio = ['wav', 'ogg', 'flac', 'm4a'].includes(ext); // Removed mp3 from here
 
     let mimeType = 'video/mp4';
     if (ext === 'webm') mimeType = 'video/webm';
     if (ext === 'mov') mimeType = 'video/quicktime';
-    if (ext === 'wav') mimeType = 'audio/wav';
-    if (ext === 'ogg') mimeType = 'audio/ogg';
 
     // Construct HTML
     
     let metaTags = `
         <meta name="theme-color" content="#687C9B" />
-        <meta property="og:site_name" content="Made by karimawi.me" />
+        <meta property="og:site_name" content="karimawi.me" />
         <meta property="og:title" content="${title.replace(/"/g, '&quot;') || 'Video'}" />
-        <meta property="og:type" content="${isAudio ? 'music.song' : 'video.other'}" />
+        <meta property="og:type" content="video.other" />
         <meta property="og:url" content="${pageUrl}" />
     `;
 
-    if (isVideo || isAudio) {
-        if (isVideo) {
-            metaTags += `
-            <meta property="og:video" content="${fileUrl}" />
-            <meta property="og:video:url" content="${fileUrl}" />
-            <meta property="og:video:secure_url" content="${fileUrl}" />
-            <meta property="og:video:type" content="${mimeType}" />
-            <meta property="og:video:width" content="1280">
-            <meta property="og:video:height" content="720">
-            <meta name="twitter:card" content="player">
-            <meta name="twitter:player" content="${fileUrl}">
-            <meta name="twitter:player:width" content="1280">
-            <meta name="twitter:player:height" content="720">
-            <meta name="twitter:player:stream" content="${fileUrl}">
-            `;
-        } else {
-            // Audio
-             metaTags += `
-            <meta property="og:audio" content="${fileUrl}" />
-            <meta property="og:audio:type" content="${mimeType}" />
-            <meta name="twitter:card" content="player">
-            <meta name="twitter:player" content="${fileUrl}">
-            <meta name="twitter:player:height" content="80">
-            <meta name="twitter:player:width" content="400">
-             `;
-        }
+    if (isVideo) {
+        metaTags += `
+        <meta property="og:video" content="${fileUrl}" />
+        <meta property="og:video:url" content="${fileUrl}" />
+        <meta property="og:video:secure_url" content="${fileUrl}" />
+        <meta property="og:video:type" content="${mimeType}" />
+        <meta property="og:video:width" content="1280">
+        <meta property="og:video:height" content="720">
+        <meta name="twitter:card" content="player">
+        <meta name="twitter:player" content="${fileUrl}">
+        <meta name="twitter:player:width" content="1280">
+        <meta name="twitter:player:height" content="720">
+        <meta name="twitter:player:stream" content="${fileUrl}">
+        `;
     }
 
     const accessLink = `<a href="${fileUrl}">${fileUrl}</a>`;
@@ -153,7 +132,7 @@ app.get('/*', (req, res) => {
             width: 90%;
             max-width: 1000px;
           }
-          video, audio {
+          video {
             width: 100%;
             max-width: 1000px;
             margin-top: 20px;
@@ -169,7 +148,6 @@ app.get('/*', (req, res) => {
             <h2>${title}</h2>
             <p>Direct Link: ${accessLink}</p>
             ${isVideo ? `<video controls preload="auto" src="${fileUrl}"></video>` : ''}
-            ${isAudio ? `<audio controls preload="auto" src="${fileUrl}"></audio>` : ''}
         </div>
       </body>
     </html>`;
