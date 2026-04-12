@@ -159,6 +159,7 @@ Use `--edit-userhash` anytime to update it via a GUI prompt.
 - [x] ~~Fix copying invalid blob~~ ✅ **Fixed clipboard copying**
 - [x] ~~Implement a button to copy an embeddable URL to enable video preview with [Benny's Embed Generator](https://benny.fun/embed) for apps like Discord~~ ✅ **Added right-click context menu for video embeds**
 - [x] ~~Mass delete functionality~~ ✅ **Added mass delete with progress tracking**
+- [ ] Add retry option for failed uploads
 
 ---
 
