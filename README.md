@@ -146,7 +146,7 @@ Use `--edit-userhash` anytime to update it via a GUI prompt.
 
 ## 💡 Tips
 
-- Run `catbox.exe` with no arguments to re-register or update context menu
+- Run `catbox.exe` with no arguments to re-register or update context menu entries
 - You can safely delete and re-run to reset registry entries
 - Upload history helps you keep track of everything you've uploaded with no retention
 - You can bulk upload if you select more than one file, the program will launch multiple instances for each file
@@ -160,6 +160,7 @@ Use `--edit-userhash` anytime to update it via a GUI prompt.
 - [x] ~~Implement a button to copy an embeddable URL to enable video preview with [Benny's Embed Generator](https://benny.fun/embed) for apps like Discord~~ ✅ **Added right-click context menu for video embeds**
 - [x] ~~Mass delete functionality~~ ✅ **Added mass delete with progress tracking**
 - [ ] Add retry option for failed uploads
+- [ ] Updater
 
 ---
 
